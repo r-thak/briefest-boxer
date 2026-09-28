@@ -81,10 +81,11 @@ public final class SulfurCubeHitModel {
         // The ordinary damage knockback reaches the 5-argument overload, which
         // supplies false for SulfurCube's quarter-strength flag. The player bonus
         // below uses the 6-argument overload with that flag enabled.
-        // LivingEntity.dealDefaultKnockback always calls knockback with strength 0.4.
-        // SulfurCube then scales its archetype impulse by sqrt(attackDamage), so the
-        // ordinary hit impulse is sqrt(damage) * 0.4 (the player bonus is separate).
-        double damageImpulse = 0.4 * Math.sqrt(Math.max(0.0, damage))
+        // LivingEntity.dealDefaultKnockback passes 0.4 as the knockback vector
+        // magnitude, but SulfurCube's override uses that magnitude only for its
+        // quarter-strength bonus path. Ordinary archetype hits scale by sqrt(damage)
+        // alone; applyImpulse applies the horizontal 0.4 factor afterward.
+        double damageImpulse = Math.sqrt(Math.max(0.0, damage))
                 * (1.0 - knockbackResistance);
 
         // hurtServer() invokes dealDefaultKnockback() with the damage source vector and

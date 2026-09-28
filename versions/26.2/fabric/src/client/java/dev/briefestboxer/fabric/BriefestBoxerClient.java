@@ -8,7 +8,6 @@ import net.minecraft.gizmos.Gizmos;
 import net.minecraft.gizmos.GizmoStyle;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.SulfurCubeArchetype;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.monster.cubemob.SulfurCube;
@@ -76,17 +75,18 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         TargetDistance nearest = null;
 
         for (Entity entity : client.level.entitiesForRendering()) {
-            if (!(entity instanceof LivingEntity target) || target == viewer || !target.isAlive()
-                    || target.isSpectator() || target.isInvisible()) continue;
-            if (target instanceof net.minecraft.world.entity.player.Player && !BriefestBoxerConfig.showAimPoints) continue;
-            if (!(target instanceof net.minecraft.world.entity.player.Player) && !BriefestBoxerConfig.showEntities) continue;
-            AABB bounds = hittableBounds(target, partialTick);
+            if (entity == viewer || !entity.isAlive()
+                    || entity instanceof net.minecraft.world.entity.player.Player targetPlayer && targetPlayer.isSpectator()
+                    || entity.isInvisible()) continue;
+            if (entity instanceof net.minecraft.world.entity.player.Player && !BriefestBoxerConfig.showAimPoints) continue;
+            if (!(entity instanceof net.minecraft.world.entity.player.Player) && !BriefestBoxerConfig.showEntities) continue;
+            AABB bounds = hittableBounds(entity, partialTick);
             EntityHighlightSelector.Bounds geometry = bounds(bounds);
             double distanceSquared = EntityHighlightSelector.distanceSquared(vector(cameraPosition), geometry);
             dev.briefestboxer.core.Vec3 closest = EntityHighlightSelector.closestPoint(vector(cameraPosition), geometry);
             Vec3 nearestSurfacePoint = new Vec3(closest.x, closest.y, closest.z);
             if (distanceSquared > scanRadiusSquared || !isVisible(client, viewer, cameraPosition, bounds, nearestSurfacePoint)) continue;
-            TargetDistance candidate = new TargetDistance(target, bounds, distanceSquared);
+            TargetDistance candidate = new TargetDistance(entity, bounds, distanceSquared);
             if (nearest == null || candidate.distanceSquared < nearest.distanceSquared) nearest = candidate;
         }
 
@@ -95,8 +95,9 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         // meaningfully closer.
         if (nearest != null && selectedEntityId >= 0 && nearest.entity.getId() != selectedEntityId) {
             for (Entity entity : client.level.entitiesForRendering()) {
-                if (entity.getId() != selectedEntityId || !(entity instanceof LivingEntity current)
-                        || !current.isAlive() || current.isInvisible() || current.isSpectator()) continue;
+                if (entity.getId() != selectedEntityId || !entity.isAlive() || entity.isInvisible()
+                        || entity instanceof net.minecraft.world.entity.player.Player player && player.isSpectator()) continue;
+                Entity current = entity;
                 if (current instanceof net.minecraft.world.entity.player.Player && !BriefestBoxerConfig.showAimPoints) break;
                 if (!(current instanceof net.minecraft.world.entity.player.Player) && !BriefestBoxerConfig.showEntities) break;
                 AABB currentBounds = hittableBounds(current, partialTick);
@@ -124,7 +125,8 @@ public final class BriefestBoxerClient implements ClientModInitializer {
             EntityHighlightSelector.Bounds geometry = bounds(nearest.bounds);
             PatchState state = PATCHES.computeIfAbsent(selectedId, ignored -> new PatchState());
             state.entity = nearest.entity;
-            state.bounds = geometry;
+            state.targetBounds = geometry;
+            if (state.bounds == null) state.bounds = geometry;
         }
         if (!nearestInReach) {
             selectedEntityId = -1;
@@ -137,9 +139,12 @@ public final class BriefestBoxerClient implements ClientModInitializer {
                 iterator.remove();
                 continue;
             }
-            if (entry.getKey() != selectedId) {
-                state.bounds = bounds(hittableBounds(state.entity, partialTick));
-            }
+            state.targetBounds = bounds(hittableBounds(state.entity, partialTick));
+            if (state.bounds == null) state.bounds = state.targetBounds;
+            // Smooth the surface itself as entities move. Use a short response time so
+            // it follows fast targets without the visibly delayed trail of a long lerp.
+            double positionEasing = 1.0 - Math.exp(-dt / 0.035);
+            state.bounds = interpolate(state.bounds, state.targetBounds, positionEasing);
             double targetOpacity = entry.getKey() == selectedId ? 1.0 : 0.0;
             state.opacity += (targetOpacity - state.opacity) * easing;
             if (state.opacity < 0.002) {
@@ -194,7 +199,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         return entity.getBoundingBox().move(renderOffset);
     }
 
-    /** Includes the same pick-radius overspill Minecraft uses when ray picking entities. */
+    /** Includes the targeting-margin overspill Minecraft uses when ray picking entities. */
     private static AABB hittableBounds(Entity entity, float partialTick) {
         AABB bounds = interpolatedBounds(entity, partialTick);
         float pickRadius = entity.getPickRadius();
@@ -203,6 +208,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
 
     private static final class PatchState {
         private EntityHighlightSelector.Bounds bounds;
+        private EntityHighlightSelector.Bounds targetBounds;
         private double opacity;
         private Entity entity;
         private PatchState() {}
@@ -210,6 +216,18 @@ public final class BriefestBoxerClient implements ClientModInitializer {
 
     private static EntityHighlightSelector.Bounds bounds(AABB box) {
         return new EntityHighlightSelector.Bounds(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ);
+    }
+
+    private static EntityHighlightSelector.Bounds interpolate(EntityHighlightSelector.Bounds from,
+            EntityHighlightSelector.Bounds to, double amount) {
+        return new EntityHighlightSelector.Bounds(
+                lerp(from.minX, to.minX, amount), lerp(from.minY, to.minY, amount),
+                lerp(from.minZ, to.minZ, amount), lerp(from.maxX, to.maxX, amount),
+                lerp(from.maxY, to.maxY, amount), lerp(from.maxZ, to.maxZ, amount));
+    }
+
+    private static double lerp(double from, double to, double amount) {
+        return from + (to - from) * amount;
     }
 
     private static boolean isVisible(Minecraft client, Entity viewer, Vec3 camera, AABB box, Vec3 closest) {
@@ -401,7 +419,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         return vector(clipped);
     }
 
-    private record TargetDistance(LivingEntity entity, AABB bounds, double distanceSquared) {}
+    private record TargetDistance(Entity entity, AABB bounds, double distanceSquared) {}
 
     private static dev.briefestboxer.core.Vec3 vector(Vec3 point) {
         return new dev.briefestboxer.core.Vec3(point.x, point.y, point.z);

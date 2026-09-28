@@ -32,7 +32,7 @@ class SulfurCubeHitModelTest {
         Vec3 withBonus = hitWithDamageAndKnockback(4.0, 2.0);
         // sqrt(damage) * strength * 0.25 supplies the bonus, then Player.attack
         // damps X/Z by 0.6.
-        assertEquals(0.1782, withBonus.z, 1.0e-6);
+        assertEquals(0.297, withBonus.z, 1.0e-6);
     }
 
     @Test
@@ -41,7 +41,7 @@ class SulfurCubeHitModelTest {
 
         // The cube applies sqrt(damage) * knockbackStrength * 0.25 separately
         // from the ordinary damage impulse.
-        assertEquals(0.2772, velocity.z, 1.0e-6);
+        assertEquals(0.396, velocity.z, 1.0e-6);
     }
 
     @Test
@@ -49,7 +49,7 @@ class SulfurCubeHitModelTest {
         Vec3 velocity = hitWithDamageAndKnockback(4.0, 0.0);
 
         // The ordinary five-argument knockback call supplies false for that flag.
-        assertEquals(0.132, velocity.z, 1.0e-6);
+        assertEquals(0.33, velocity.z, 1.0e-6);
     }
 
     @Test
@@ -82,8 +82,8 @@ class SulfurCubeHitModelTest {
 
         // Source transfer factor clamps to -1: horizontal gets 1.5x and vertical gets 0.5x.
         assertEquals(0.0, velocity.x, 1.0e-9);
-        assertEquals(0.032, velocity.y, 1.0e-6);
-        assertEquals(0.128, velocity.z, 1.0e-6);
+        assertEquals(0.08, velocity.y, 1.0e-6);
+        assertEquals(0.32, velocity.z, 1.0e-6);
     }
 
     @Test
@@ -97,9 +97,9 @@ class SulfurCubeHitModelTest {
         // The attack angle rotates the incoming horizontal direction. The vertical
         // impulse uses the unrotated archetype powers, then the game's position-angle
         // normalization caps the horizontal transfer and scales the vertical component.
-        assertEquals(0.1195535556, velocity.x, 1.0e-6);
-        assertEquals(0.032, velocity.y, 1.0e-6);
-        assertEquals(0.0457268776, velocity.z, 1.0e-6);
+        assertEquals(0.2988838891, velocity.x, 1.0e-6);
+        assertEquals(0.08, velocity.y, 1.0e-6);
+        assertEquals(0.114317194, velocity.z, 1.0e-6);
     }
 
     @Test

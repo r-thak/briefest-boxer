@@ -96,7 +96,8 @@ public final class Trajectory {
         List<Vec3> samples = new ArrayList<Vec3>(ticks + 1);
         Vec3 currentPosition = position;
         Vec3 currentVelocity = velocity;
-        Surface currentSurface = groundSampler.sample(currentPosition.x, currentPosition.y, currentPosition.z);
+        Surface currentSurface = initiallyOnGround
+                ? groundSampler.sample(currentPosition.x, currentPosition.y, currentPosition.z) : null;
         boolean onGround = initiallyOnGround;
         samples.add(currentPosition);
         for (int tick = 0; tick < ticks; tick++) {
@@ -109,7 +110,11 @@ public final class Trajectory {
             boolean hitY = Math.abs(movement.y - currentVelocity.y) > 1.0E-7;
             boolean hitZ = Math.abs(movement.z - currentVelocity.z) > 1.0E-7;
             currentPosition = currentPosition.add(movement);
-            Surface surface = groundSampler.sample(currentPosition.x, currentPosition.y, currentPosition.z);
+            // A swept entity collision tells us exactly when a ground sample is
+            // needed. Avoid ray-sampling the terrain twice per airborne tick; long
+            // Sulfur Cube predictions otherwise multiply that cost every frame.
+            Surface surface = collisionSampler == null || (hitY && currentVelocity.y < 0.0)
+                    ? groundSampler.sample(currentPosition.x, currentPosition.y, currentPosition.z) : null;
             boolean crossedSampledGround = surface != null && currentVelocity.y < 0.0
                     && currentPosition.y - cubeHeight * 0.5 <= surface.height + 1.0E-7;
             // The adapter's swept AABB clip is authoritative about contact. A nearby

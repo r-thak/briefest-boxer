@@ -2,6 +2,8 @@ package dev.briefestboxer.core;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class TrajectoryTest {
@@ -117,5 +119,21 @@ class TrajectoryTest {
         // reports a lower nearby surface; it must not snap the exact collision result.
         assertEquals(1.0, path.getPositions().get(1).y, 1.0e-9);
         assertEquals(2.8, path.getPositions().get(2).y, 1.0e-9);
+    }
+
+    @Test
+    void airborneCollisionSimulationDoesNotResampleGroundEveryTick() {
+        AtomicInteger groundSamples = new AtomicInteger();
+        Trajectory path = Trajectory.withGroundBounces(
+                new Vec3(0.0, 20.0, 0.0), new Vec3(1.0, 0.0, 0.0),
+                new Vec3(0.0, 0.0, 0.0), 1.0, 1.0, 0.5, 1.0,
+                1.0, false,
+                (x, y, z) -> {
+                    groundSamples.incrementAndGet();
+                    return null;
+                }, (position, movement) -> movement, 128);
+
+        assertEquals(129, path.getPositions().size());
+        assertEquals(0, groundSamples.get());
     }
 }

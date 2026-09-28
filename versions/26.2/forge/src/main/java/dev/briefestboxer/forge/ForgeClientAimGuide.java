@@ -168,7 +168,7 @@ public final class ForgeClientAimGuide {
         double pointDistance = camera.distanceToSqr(point);
         if (pointDistance < 1.0E-8) return true;
         HitResult obstruction = client.level.clip(new ClipContext(camera, point,
-                ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, viewer));
+                ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, viewer));
         return obstruction.getType() != HitResult.Type.BLOCK
                 || camera.distanceToSqr(obstruction.getLocation()) >= pointDistance - 0.01;
     }
@@ -208,7 +208,7 @@ public final class ForgeClientAimGuide {
             double distanceSquared = camera.distanceToSqr(sample);
             if (distanceSquared < 1.0E-8) return true;
             HitResult obstruction = client.level.clip(new ClipContext(camera, sample,
-                    ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, viewer));
+                    ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, viewer));
             if (obstruction.getType() != HitResult.Type.BLOCK
                     || camera.distanceToSqr(obstruction.getLocation()) >= distanceSquared - 0.01) return true;
         }

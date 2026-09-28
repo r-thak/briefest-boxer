@@ -167,7 +167,13 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         for (ReachableSurface.Triangle triangle : mesh) {
             Vec3 a = gameVec(triangle.a), b = gameVec(triangle.b), c = gameVec(triangle.c);
             Vec3 sample = a.add(b).add(c).scale(1.0 / 3.0);
-            if (!isPointVisible(client, viewer, camera, sample)) continue;
+            // A center-only ray lets a large triangle paint through a nearby block
+            // when just its middle is visible. Check its vertices as well so the
+            // colored overspill remains limited to the actually visible surface.
+            if (!isPointVisible(client, viewer, camera, sample)
+                    || !isPointVisible(client, viewer, camera, a)
+                    || !isPointVisible(client, viewer, camera, b)
+                    || !isPointVisible(client, viewer, camera, c)) continue;
             visibleTriangles.add(new Vec3[] {a, b, c});
         }
         if (visibleTriangles.isEmpty()) return;
@@ -324,7 +330,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
                 primitives.addQuad(from.subtract(coreSide), from.add(coreSide),
                         to.add(coreSide), to.subtract(coreSide), core);
             }
-        }).setAlwaysOnTop();
+        });
     }
 
     private static Trajectory calculateSulfurTrajectory(Minecraft client, SulfurCube cube,

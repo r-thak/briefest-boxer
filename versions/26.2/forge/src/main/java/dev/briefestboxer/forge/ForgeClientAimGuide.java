@@ -141,8 +141,6 @@ public final class ForgeClientAimGuide {
         List<Vec3[]> visibleTriangles = new ArrayList<>();
         for (ReachableSurface.Triangle triangle : ReachableSurface.mesh(box, vector(camera), reach)) {
             Vec3 a = gameVec(triangle.a), b = gameVec(triangle.b), c = gameVec(triangle.c);
-            Vec3 faceNormal = b.subtract(a).cross(c.subtract(a)).normalize();
-            if (faceNormal.dot(camera.subtract(a)) <= 0.0) continue;
             Vec3 sample = a.add(b).add(c).scale(1.0 / 3.0);
             if (!isPointVisible(client, viewer, camera, sample)) continue;
             visibleTriangles.add(new Vec3[] {a, b, c});

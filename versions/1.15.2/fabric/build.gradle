@@ -34,6 +34,12 @@ tasks.withType(JavaCompile).configureEach {
     options.release = 8
 }
 
+tasks.named('runClient', JavaExec) {
+    javaLauncher.set(javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(17)
+    })
+}
+
 java {
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8

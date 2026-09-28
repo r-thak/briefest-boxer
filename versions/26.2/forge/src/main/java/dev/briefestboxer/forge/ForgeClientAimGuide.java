@@ -41,7 +41,6 @@ import java.util.Map;
 public final class ForgeClientAimGuide {
     private static boolean configLoaded;
     private static final Map<Integer, PatchState> PATCHES = new HashMap<>();
-    private static long lastRenderNanos;
     private static int selectedEntityId = -1;
     private static final long TRAJECTORY_MISS_GRACE_NANOS = 100_000_000L;
     private static final EntityTargetGrace<SulfurCube> trajectoryTargetGrace = new EntityTargetGrace<>();
@@ -124,25 +123,16 @@ public final class ForgeClientAimGuide {
             PatchState state = PATCHES.computeIfAbsent(selectedId, id -> new PatchState());
             state.entity = nearest.entity;
             state.bounds = geometry;
+            state.opacity = 1.0;
         }
         if (!inReach) {
             selectedEntityId = -1;
             PATCHES.clear();
         }
-        long now = System.nanoTime();
-        double dt = lastRenderNanos == 0L ? 1.0 / 60.0 : Math.min(0.1, (now - lastRenderNanos) / 1.0E9);
-        lastRenderNanos = now;
-        double easing = 1.0 - Math.exp(-dt / 0.18);
         for (var iterator = PATCHES.entrySet().iterator(); iterator.hasNext();) {
             Map.Entry<Integer, PatchState> entry = iterator.next();
             PatchState state = entry.getValue();
             if (state.entity == null || state.entity.isRemoved() || !state.entity.isAlive()) {
-                iterator.remove();
-                continue;
-            }
-            double targetOpacity = entry.getKey() == selectedId ? 1.0 : 0.0;
-            state.opacity += (targetOpacity - state.opacity) * easing;
-            if (state.opacity < 0.002) {
                 iterator.remove();
                 continue;
             }

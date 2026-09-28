@@ -8,7 +8,7 @@ import java.util.List;
 public final class ReachableSurface {
     // High tessellation keeps the edge of the spherical reach boundary smooth at
     // normal entity render distances and prevents the segmented/pixelated look.
-    private static final int CIRCLE_SEGMENTS = 96;
+    private static final int CIRCLE_SEGMENTS = 256;
 
     private ReachableSurface() {}
 
@@ -25,6 +25,11 @@ public final class ReachableSurface {
             int v = (axis + 2) % 3;
             for (int side = 0; side < 2; side++) {
                 double fixed = side == 0 ? min[axis] : max[axis];
+                // Only the outward-facing surface can be reached by a ray from the
+                // camera. Rendering the far faces on top turns a small reachable
+                // patch into a translucent-looking wash over the whole entity.
+                double cameraAxis = cameraCoordinate(camera, axis);
+                if (side == 0 ? cameraAxis > fixed : cameraAxis < fixed) continue;
                 double normalDistance = cameraCoordinate(camera, axis) - fixed;
                 double radiusSquared = reachSquared - normalDistance * normalDistance;
                 if (radiusSquared <= 0.0) continue;

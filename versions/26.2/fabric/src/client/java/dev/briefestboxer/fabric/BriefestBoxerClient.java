@@ -40,7 +40,6 @@ import java.util.Map;
 public final class BriefestBoxerClient implements ClientModInitializer {
     private static final Logger LOGGER = LoggerFactory.getLogger("Briefest Boxer");
     private static final Map<Integer, PatchState> PATCHES = new HashMap<>();
-    private static long lastRenderNanos;
     private static int selectedEntityId = -1;
     private static final long TRAJECTORY_MISS_GRACE_NANOS = 100_000_000L;
     private static final EntityTargetGrace<SulfurCube> trajectoryTargetGrace = new EntityTargetGrace<>();
@@ -115,9 +114,6 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         }
 
         boolean nearestInReach = nearest != null && nearest.distanceSquared <= reach * reach;
-        long now = System.nanoTime();
-        double dt = lastRenderNanos == 0L ? 1.0 / 60.0 : Math.min(0.1, (now - lastRenderNanos) / 1.0E9);
-        lastRenderNanos = now;
         int selectedId = -1;
         if (nearestInReach) {
             selectedId = nearest.entity.getId();
@@ -126,6 +122,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
             EntityHighlightSelector.Bounds geometry = bounds(nearest.bounds);
             PatchState state = PATCHES.computeIfAbsent(selectedId, ignored -> new PatchState());
             state.entity = nearest.entity;
+            state.opacity = 1.0;
             // Bounds already use Minecraft's partial-tick entity interpolation.
             // Smoothing them again makes the patch visibly trail behind the model.
             state.bounds = geometry;
@@ -134,17 +131,10 @@ public final class BriefestBoxerClient implements ClientModInitializer {
             selectedEntityId = -1;
             PATCHES.clear();
         }
-        double easing = 1.0 - Math.exp(-dt / 0.18);
         for (var iterator = PATCHES.entrySet().iterator(); iterator.hasNext();) {
             Map.Entry<Integer, PatchState> entry = iterator.next();
             PatchState state = entry.getValue();
             if (state.entity == null || state.entity.isRemoved() || !state.entity.isAlive()) {
-                iterator.remove();
-                continue;
-            }
-            double targetOpacity = 1.0;
-            state.opacity += (targetOpacity - state.opacity) * easing;
-            if (state.opacity < 0.002) {
                 iterator.remove();
                 continue;
             }

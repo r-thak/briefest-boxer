@@ -1,6 +1,6 @@
 # Briefest Boxer
 
-Client-side aiming guide for Minecraft Java Edition. The Fabric renderers for 1.16.5–1.21.1 and Forge renderers for 1.20.1–1.21.1, plus both 26.2 loader builds, select the nearest visible entity surface from the camera and draw a smooth, reach-clipped colored cover on its interpolated hittable bounds. The 26.2 renderer eases the surface toward moving entities with a short response time. On version 26.2, the mod also previews a Sulfur Cube's predicted motion using the cube's body-item archetype and the player's attack attributes and aim angle.
+Client-side aiming guide for Minecraft Java Edition. The Fabric renderers for 1.16.5–1.21.1 and Forge renderers for 1.20.1–1.21.1, plus both 26.2 loader builds, select the nearest visible entity surface from the camera and draw a smooth, reach-clipped colored cover on its interpolated hittable bounds. The 26.2 renderer fills the camera-facing reachable surface immediately with the configured color. On version 26.2, the mod also previews a Sulfur Cube's predicted motion using the cube's body-item archetype and the player's attack attributes and aim angle.
 
 ## Release targets
 

@@ -122,7 +122,6 @@ public final class BriefestBoxerClient implements ClientModInitializer {
             EntityHighlightSelector.Bounds geometry = bounds(nearest.bounds);
             PatchState state = PATCHES.computeIfAbsent(selectedId, ignored -> new PatchState());
             state.entity = nearest.entity;
-            state.opacity = 1.0;
             // Bounds already use Minecraft's partial-tick entity interpolation.
             // Smoothing them again makes the patch visibly trail behind the model.
             state.bounds = geometry;
@@ -140,13 +139,13 @@ public final class BriefestBoxerClient implements ClientModInitializer {
             }
             int color = BriefestBoxerConfig.selectedColor();
             drawReachableSurface(client, viewer, cameraPosition, state.bounds, reach,
-                    color, state.opacity);
+                    color);
         }
     }
 
     /** Draws only the AABB surface that lies within interaction reach. */
     private static void drawReachableSurface(Minecraft client, Entity viewer, Vec3 camera,
-            EntityHighlightSelector.Bounds box, double reach, int rgb, double opacity) {
+            EntityHighlightSelector.Bounds box, double reach, int rgb) {
         List<Vec3[]> visibleTriangles = new ArrayList<>();
         List<ReachableSurface.Triangle> mesh = ReachableSurface.mesh(box,
                 new dev.briefestboxer.core.Vec3(camera.x, camera.y, camera.z), reach);
@@ -162,8 +161,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
             visibleTriangles.add(new Vec3[] {a, b, c});
         }
         if (visibleTriangles.isEmpty()) return;
-        int alpha = (int) (0xFF * opacity);
-        int color = (alpha << 24) | (rgb & 0xFFFFFF);
+        int color = 0xFF000000 | (rgb & 0xFFFFFF);
         // Draw over entity geometry, but only submit triangles with a clear block ray.
         GizmoStyle style = GizmoStyle.fill(color);
         Gizmos.addGizmo((primitives, progress) -> {
@@ -199,7 +197,6 @@ public final class BriefestBoxerClient implements ClientModInitializer {
 
     private static final class PatchState {
         private EntityHighlightSelector.Bounds bounds;
-        private double opacity;
         private Entity entity;
         private PatchState() {}
     }

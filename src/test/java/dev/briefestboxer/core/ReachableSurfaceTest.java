@@ -13,8 +13,8 @@ class ReachableSurfaceTest {
 
     @Test
     void reachableCoverageGrowsAsCameraApproaches() {
-        List<ReachableSurface.Triangle> far = ReachableSurface.mesh(BOX, new Vec3(0, 0.9, -2.9), 3.0);
-        List<ReachableSurface.Triangle> near = ReachableSurface.mesh(BOX, new Vec3(0, 0.9, -1.0), 3.0);
+        List<ReachableSurface.Triangle> far = ReachableSurface.mesh(BOX, new Vec3(0, 0.9, -1.7), 1.5);
+        List<ReachableSurface.Triangle> near = ReachableSurface.mesh(BOX, new Vec3(0, 0.9, -1.0), 1.5);
         assertTrue(!far.isEmpty());
         assertTrue(area(near) > area(far));
     }
@@ -59,6 +59,26 @@ class ReachableSurfaceTest {
                 assertTrue(normal.z * (triangle.a.z == BOX.minZ ? -1.0 : 1.0) >= -1.0E-12);
             }
         }
+    }
+
+    @Test
+    void onlyCameraFacingReachableFacesAreIncluded() {
+        Vec3 camera = new Vec3(2.0, 2.0, -2.0);
+        List<ReachableSurface.Triangle> triangles = ReachableSurface.mesh(BOX, camera, 3.0);
+        assertFalse(triangles.isEmpty());
+        for (ReachableSurface.Triangle triangle : triangles) {
+            boolean xFace = same(triangle.a.x, triangle.b.x) && same(triangle.a.x, triangle.c.x);
+            boolean yFace = same(triangle.a.y, triangle.b.y) && same(triangle.a.y, triangle.c.y);
+            boolean zFace = same(triangle.a.z, triangle.b.z) && same(triangle.a.z, triangle.c.z);
+            assertTrue((xFace ? 1 : 0) + (yFace ? 1 : 0) + (zFace ? 1 : 0) == 1);
+            if (xFace) assertTrue(same(triangle.a.x, BOX.maxX) && camera.x >= triangle.a.x);
+            if (yFace) assertTrue(same(triangle.a.y, BOX.maxY) && camera.y >= triangle.a.y);
+            if (zFace) assertTrue(same(triangle.a.z, BOX.minZ) && camera.z <= triangle.a.z);
+        }
+    }
+
+    private static boolean same(double a, double b) {
+        return Math.abs(a - b) <= 1.0E-10;
     }
 
     private static double area(List<ReachableSurface.Triangle> triangles) {

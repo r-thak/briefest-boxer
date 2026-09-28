@@ -1,0 +1,39 @@
+plugins {
+    id 'java'
+    id 'net.minecraftforge.gradle' version '[7.0.17,8)'
+}
+
+version = mod_version
+group = 'dev.briefestboxer'
+base { archivesName = "briefest-boxer-${minecraft_version}-forge" }
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(25)
+
+minecraft {
+    mappings channel: 'official', version: minecraft_version
+    runs {
+        configureEach { workingDir = project.file('run') }
+        client {
+            // LWJGL's macOS Cocoa window must be initialized on the JVM's first thread.
+            jvmArgs '-XstartOnFirstThread'
+        }
+    }
+}
+
+repositories {
+    minecraft.mavenizer(it)
+    maven fg.forgeMaven
+    maven fg.minecraftLibsMaven
+    mavenCentral()
+}
+
+dependencies {
+    implementation minecraft.dependency("net.minecraftforge:forge:${minecraft_version}-${forge_version}")
+}
+
+sourceSets.main.java.srcDir('../../../common/src/main/java')
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 25
+}

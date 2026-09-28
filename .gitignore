@@ -1,0 +1,16 @@
+# Gradle state and compiled outputs
+.gradle/
+**/.gradle/
+build/
+**/build/
+
+# Local Minecraft runs, saves, options, logs, and downloaded assets
+**/run/
+**/run/**
+*.log
+
+# Local/editor files
+.DS_Store
+
+# NeoForge builds are intentionally outside the supported loader matrix
+versions/*/neoforge/

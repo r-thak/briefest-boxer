@@ -16,7 +16,6 @@ import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.render.VertexFormats;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.entity.Entity;
-import net.minecraft.entity.LivingEntity;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
@@ -45,14 +44,15 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         if (client.player == null || context.world() == null || context.consumers() == null) return;
         Vec3d camera = context.camera().getPos();
         double maxDistance = BriefestBoxerConfig.aimRange();
-        double reach = 3.0;
+        double reach = client.interactionManager == null ? 3.0
+                : client.interactionManager.getReachDistance();
         Target nearest = null;
         for (Entity entity : context.world().getEntities()) {
-            if (!(entity instanceof LivingEntity target) || target == client.player || !target.isAlive()
-                    || target.isSpectator() || target.isInvisible()) continue;
+            Entity target = entity;
+            if (target == client.player || !target.isAlive() || target.isSpectator() || target.isInvisible()) continue;
             if (target instanceof AbstractClientPlayerEntity && !BriefestBoxerConfig.showAimPoints) continue;
             if (!(target instanceof AbstractClientPlayerEntity) && !BriefestBoxerConfig.showEntities) continue;
-            Box box = target.getBoundingBox();
+            Box box = hittableBounds(target, context.tickDelta());
             Vec3d closest = closest(camera, box);
             double d2 = camera.squaredDistanceTo(closest);
             if (d2 > maxDistance * maxDistance || !visible(context, client.player, camera, closest)) continue;
@@ -68,6 +68,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
             EntityHighlightSelector.Bounds geometry = bounds(nearest.box);
             PatchState state = PATCHES.computeIfAbsent(selectedId, id -> new PatchState(geometry));
             state.bounds = geometry;
+            state.playerTarget = nearest.entity instanceof AbstractClientPlayerEntity;
             state.targetScale = 1.0;
         }
         VertexConsumer out = context.consumers().getBuffer(PatchLayer.LAYER);
@@ -80,8 +81,9 @@ public final class BriefestBoxerClient implements ClientModInitializer {
             if (entry.getKey() != selectedId) state.targetScale = 0.0;
             state.scale += (state.targetScale - state.scale) * ease;
             if (state.scale < 0.002) { it.remove(); continue; }
-            drawReachableSurface(context, out, camera, state.bounds, reach,
-                    BriefestBoxerConfig.selectedColor(), state.scale);
+            int color = state.playerTarget ? BriefestBoxerConfig.selectedColor()
+                    : BriefestBoxerConfig.otherColor();
+            drawReachableSurface(context, out, camera, state.bounds, reach, color, state.scale);
         }
         context.matrixStack().pop();
     }
@@ -89,11 +91,14 @@ public final class BriefestBoxerClient implements ClientModInitializer {
     private static void drawReachableSurface(WorldRenderContext context, VertexConsumer out, Vec3d camera,
             EntityHighlightSelector.Bounds bounds, double reach, int rgb, double opacity) {
         for (ReachableSurface.Triangle triangle : ReachableSurface.mesh(bounds, vector(camera), reach)) {
-            int alpha = (int) (0xA0 * opacity), r = rgb >>> 16 & 255, g = rgb >>> 8 & 255, b = rgb & 255;
-            vertex(out, context, gameVec(triangle.a), r, g, b, alpha);
-            vertex(out, context, gameVec(triangle.b), r, g, b, alpha);
-            vertex(out, context, gameVec(triangle.c), r, g, b, alpha);
-            vertex(out, context, gameVec(triangle.c), r, g, b, alpha);
+            Vec3d a = gameVec(triangle.a), pointB = gameVec(triangle.b), c = gameVec(triangle.c);
+            Vec3d sample = new Vec3d((a.x + pointB.x + c.x) / 3.0,
+                    (a.y + pointB.y + c.y) / 3.0, (a.z + pointB.z + c.z) / 3.0);
+            if (!visible(context, MinecraftClient.getInstance().player, camera, sample)) continue;
+            int alpha = (int) (0xA0 * opacity), r = rgb >>> 16 & 255, g = rgb >>> 8 & 255, blue = rgb & 255;
+            vertex(out, context, a, r, g, blue, alpha);
+            vertex(out, context, pointB, r, g, blue, alpha);
+            vertex(out, context, c, r, g, blue, alpha);
         }
     }
     private static Vec3d gameVec(Vec3 p) { return new Vec3d(p.x, p.y, p.z); }
@@ -115,6 +120,14 @@ public final class BriefestBoxerClient implements ClientModInitializer {
     private static Vec3d closest(Vec3d p, Box b) {
         return new Vec3d(clamp(p.x, b.minX, b.maxX), clamp(p.y, b.minY, b.maxY), clamp(p.z, b.minZ, b.maxZ));
     }
+    private static Box hittableBounds(Entity entity, float tickDelta) {
+        double backstep = 1.0 - tickDelta;
+        double margin = entity.getTargetingMargin();
+        return entity.getBoundingBox().expand(margin).offset(
+                (entity.prevX - entity.getX()) * backstep,
+                (entity.prevY - entity.getY()) * backstep,
+                (entity.prevZ - entity.getZ()) * backstep);
+    }
     private static EntityHighlightSelector.Bounds bounds(Box b) {
         return new EntityHighlightSelector.Bounds(b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ);
     }
@@ -124,11 +137,12 @@ public final class BriefestBoxerClient implements ClientModInitializer {
     private static final class PatchState {
         private EntityHighlightSelector.Bounds bounds;
         private double scale, targetScale;
+        private boolean playerTarget;
         private PatchState(EntityHighlightSelector.Bounds bounds) { this.bounds = bounds; }
     }
     private static final class Target {
-        private final LivingEntity entity; private final Box box; private final double distanceSquared;
-        private Target(LivingEntity entity, Box box, double d2) { this.entity = entity; this.box = box; distanceSquared = d2; }
+        private final Entity entity; private final Box box; private final double distanceSquared;
+        private Target(Entity entity, Box box, double d2) { this.entity = entity; this.box = box; distanceSquared = d2; }
     }
 
     private static final class PatchLayer extends RenderLayer {

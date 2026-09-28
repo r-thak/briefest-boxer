@@ -38,12 +38,10 @@ public final class BriefestBoxerModMenu implements ModMenuApi {
                     () -> BriefestBoxerConfig.trajectorySteps = next(BriefestBoxerConfig.steps(), BriefestBoxerConfig.trajectorySteps)));
             addRenderableWidget(button(x, y + 140, 300, () -> "Highlight color: " + BriefestBoxerConfig.colorName(BriefestBoxerConfig.selectedColor),
                     () -> BriefestBoxerConfig.selectedColor = (BriefestBoxerConfig.selectedColor + 1) % 6));
-            addRenderableWidget(button(x, y + 168, 300, () -> "Nearby entity color: " + BriefestBoxerConfig.colorName(BriefestBoxerConfig.otherColor),
-                    () -> BriefestBoxerConfig.otherColor = (BriefestBoxerConfig.otherColor + 1) % 6));
-            addRenderableWidget(button(x, y + 196, 300, () -> "Trajectory color: " + BriefestBoxerConfig.colorName(BriefestBoxerConfig.trajectoryColor),
+            addRenderableWidget(button(x, y + 168, 300, () -> "Trajectory color: " + BriefestBoxerConfig.colorName(BriefestBoxerConfig.trajectoryColor),
                     () -> BriefestBoxerConfig.trajectoryColor = (BriefestBoxerConfig.trajectoryColor + 1) % 6));
             addRenderableWidget(Button.builder(Component.literal("Done"), button -> onClose())
-                    .bounds(width / 2 - 100, y + 224, 200, 20).build());
+                    .bounds(width / 2 - 100, y + 196, 200, 20).build());
         }
 
         private Button button(int x, int y, int w, java.util.function.Supplier<String> label, Runnable action) {

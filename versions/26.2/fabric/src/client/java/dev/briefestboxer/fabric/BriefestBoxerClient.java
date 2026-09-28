@@ -121,15 +121,18 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         int selectedId = -1;
         if (nearestInReach) {
             selectedId = nearest.entity.getId();
+            if (selectedEntityId != selectedId) PATCHES.clear();
             selectedEntityId = selectedId;
             EntityHighlightSelector.Bounds geometry = bounds(nearest.bounds);
             PatchState state = PATCHES.computeIfAbsent(selectedId, ignored -> new PatchState());
             state.entity = nearest.entity;
-            state.targetBounds = geometry;
-            if (state.bounds == null) state.bounds = geometry;
+            // Bounds already use Minecraft's partial-tick entity interpolation.
+            // Smoothing them again makes the patch visibly trail behind the model.
+            state.bounds = geometry;
         }
         if (!nearestInReach) {
             selectedEntityId = -1;
+            PATCHES.clear();
         }
         double easing = 1.0 - Math.exp(-dt / 0.18);
         for (var iterator = PATCHES.entrySet().iterator(); iterator.hasNext();) {
@@ -139,20 +142,13 @@ public final class BriefestBoxerClient implements ClientModInitializer {
                 iterator.remove();
                 continue;
             }
-            state.targetBounds = bounds(hittableBounds(state.entity, partialTick));
-            if (state.bounds == null) state.bounds = state.targetBounds;
-            // Smooth the surface itself as entities move. Use a short response time so
-            // it follows fast targets without the visibly delayed trail of a long lerp.
-            double positionEasing = 1.0 - Math.exp(-dt / 0.035);
-            state.bounds = interpolate(state.bounds, state.targetBounds, positionEasing);
-            double targetOpacity = entry.getKey() == selectedId ? 1.0 : 0.0;
+            double targetOpacity = 1.0;
             state.opacity += (targetOpacity - state.opacity) * easing;
             if (state.opacity < 0.002) {
                 iterator.remove();
                 continue;
             }
-            int color = state.entity instanceof net.minecraft.world.entity.player.Player
-                    ? BriefestBoxerConfig.selectedColor() : BriefestBoxerConfig.otherColor();
+            int color = BriefestBoxerConfig.selectedColor();
             drawReachableSurface(client, viewer, cameraPosition, state.bounds, reach,
                     color, state.opacity);
         }
@@ -167,9 +163,8 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         for (ReachableSurface.Triangle triangle : mesh) {
             Vec3 a = gameVec(triangle.a), b = gameVec(triangle.b), c = gameVec(triangle.c);
             Vec3 sample = a.add(b).add(c).scale(1.0 / 3.0);
-            // A center-only ray lets a large triangle paint through a nearby block
-            // when just its middle is visible. Check its vertices as well so the
-            // colored overspill remains limited to the actually visible surface.
+            // Requiring all three vertices keeps the full triangle behind blocks
+            // clipped instead of letting its visible center expose hidden edges.
             if (!isPointVisible(client, viewer, camera, sample)
                     || !isPointVisible(client, viewer, camera, a)
                     || !isPointVisible(client, viewer, camera, b)
@@ -214,7 +209,6 @@ public final class BriefestBoxerClient implements ClientModInitializer {
 
     private static final class PatchState {
         private EntityHighlightSelector.Bounds bounds;
-        private EntityHighlightSelector.Bounds targetBounds;
         private double opacity;
         private Entity entity;
         private PatchState() {}
@@ -222,18 +216,6 @@ public final class BriefestBoxerClient implements ClientModInitializer {
 
     private static EntityHighlightSelector.Bounds bounds(AABB box) {
         return new EntityHighlightSelector.Bounds(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ);
-    }
-
-    private static EntityHighlightSelector.Bounds interpolate(EntityHighlightSelector.Bounds from,
-            EntityHighlightSelector.Bounds to, double amount) {
-        return new EntityHighlightSelector.Bounds(
-                lerp(from.minX, to.minX, amount), lerp(from.minY, to.minY, amount),
-                lerp(from.minZ, to.minZ, amount), lerp(from.maxX, to.maxX, amount),
-                lerp(from.maxY, to.maxY, amount), lerp(from.maxZ, to.maxZ, amount));
-    }
-
-    private static double lerp(double from, double to, double amount) {
-        return from + (to - from) * amount;
     }
 
     private static boolean isVisible(Minecraft client, Entity viewer, Vec3 camera, AABB box, Vec3 closest) {

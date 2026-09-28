@@ -118,6 +118,7 @@ public final class ForgeClientAimGuide {
         boolean inReach = nearest != null && reach > 0 && nearest.distanceSquared <= reach * reach;
         int selectedId = inReach ? nearest.entity.getId() : -1;
         if (inReach) {
+            if (selectedEntityId != selectedId) PATCHES.clear();
             EntityHighlightSelector.Bounds geometry = bounds(nearest.bounds);
             selectedEntityId = selectedId;
             PatchState state = PATCHES.computeIfAbsent(selectedId, id -> new PatchState());
@@ -126,6 +127,7 @@ public final class ForgeClientAimGuide {
         }
         if (!inReach) {
             selectedEntityId = -1;
+            PATCHES.clear();
         }
         long now = System.nanoTime();
         double dt = lastRenderNanos == 0L ? 1.0 / 60.0 : Math.min(0.1, (now - lastRenderNanos) / 1.0E9);
@@ -138,17 +140,13 @@ public final class ForgeClientAimGuide {
                 iterator.remove();
                 continue;
             }
-            if (entry.getKey() != selectedId) {
-                state.bounds = bounds(hittableBounds(state.entity, partialTick));
-            }
             double targetOpacity = entry.getKey() == selectedId ? 1.0 : 0.0;
             state.opacity += (targetOpacity - state.opacity) * easing;
             if (state.opacity < 0.002) {
                 iterator.remove();
                 continue;
             }
-            int color = state.entity instanceof net.minecraft.world.entity.player.Player
-                    ? BriefestBoxerConfig.selectedColor() : BriefestBoxerConfig.otherColor();
+            int color = BriefestBoxerConfig.selectedColor();
             drawReachableSurface(client, viewer, camera, state.bounds, reach,
                     color, state.opacity);
         }

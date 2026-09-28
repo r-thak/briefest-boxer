@@ -1,0 +1,36 @@
+buildscript {
+    repositories {
+        maven { url = 'https://maven.minecraftforge.net/' }
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'net.minecraftforge.gradle:ForgeGradle:2.1-SNAPSHOT'
+    }
+}
+
+apply plugin: 'net.minecraftforge.gradle.forge'
+apply plugin: 'java'
+
+version = '0.1.0'
+group = 'dev.briefestboxer'
+archivesBaseName = 'briefest-boxer-1.8.9-forge'
+
+sourceCompatibility = targetCompatibility = '1.8'
+
+minecraft {
+    version = '1.8.9-11.15.1.2318-1.8.9'
+    runDir = 'run'
+    mappings = 'stable_22'
+}
+
+sourceSets.main.java.srcDir('../../../common/src/main/java')
+sourceSets.main.java.exclude('dev/briefestboxer/core/SulfurCubeHitModel.java')
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('mcmod.info') { expand 'version': project.version }
+}
+
+jar {
+    manifest { attributes 'FMLCorePluginContainsFMLMod': 'true' }
+}

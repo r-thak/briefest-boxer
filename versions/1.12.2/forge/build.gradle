@@ -1,0 +1,30 @@
+plugins {
+    id 'java-library'
+    id 'com.gtnewhorizons.retrofuturagradle' version '1.4.5'
+}
+
+version = mod_version
+group = 'dev.briefestboxer'
+base { archivesName = "briefest-boxer-${minecraft_version}-forge" }
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+minecraft {
+    mcVersion.set(minecraft_version)
+}
+
+sourceSets.main.java.srcDir('../../../common/src/main/java')
+sourceSets.main.java.exclude('dev/briefestboxer/core/SulfurCubeHitModel.java')
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 8
+}
+
+tasks.named('compilePatchedMcJava', JavaCompile).configure {
+    javaCompiler = javaToolchains.compilerFor { languageVersion = JavaLanguageVersion.of(17) }
+}
+
+tasks.named('compileMcLauncherJava', JavaCompile).configure {
+    javaCompiler = javaToolchains.compilerFor { languageVersion = JavaLanguageVersion.of(17) }
+}

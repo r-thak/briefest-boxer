@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "briefest_boxer",
+  "version": "${version}",
+  "name": "Briefest Boxer",
+  "description": "Client-side aim points for player hitboxes.",
+  "environment": "client",
+  "mixins": ["briefest_boxer.mixins.json"],
+  "entrypoints": {
+    "client": ["dev.briefestboxer.fabric.BriefestBoxerClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.14.22",
+    "minecraft": "1.9.4",
+    "java": ">=8"
+  }
+}

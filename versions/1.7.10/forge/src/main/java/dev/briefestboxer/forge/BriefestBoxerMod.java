@@ -4,6 +4,7 @@ import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.relauncher.Side;
+import net.minecraftforge.common.MinecraftForge;
 
 @Mod(modid = BriefestBoxerMod.MOD_ID, name = "Briefest Boxer", version = "0.1.0")
 public final class BriefestBoxerMod {
@@ -12,7 +13,9 @@ public final class BriefestBoxerMod {
     @Mod.EventHandler
     public void onInitialize(FMLInitializationEvent event) {
         if (FMLCommonHandler.instance().getSide() == Side.CLIENT) {
-            FMLCommonHandler.instance().bus().register(new ForgeClientAimGuide());
+            ForgeClientAimGuide guide = new ForgeClientAimGuide();
+            guide.loadConfig();
+            MinecraftForge.EVENT_BUS.register(guide);
         }
     }
 }

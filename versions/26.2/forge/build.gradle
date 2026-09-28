@@ -9,6 +9,16 @@ base { archivesName = "briefest-boxer-${minecraft_version}-forge" }
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(25)
 
+// ForgeGradle 7.0.40 defaults its Slimelauncher toolchain to Java 8, which
+// cannot launch Minecraft 26.2. Pin the dev launcher to the game's Java 25.
+fgtools {
+    configure('slimelauncher') { tool ->
+        tool.javaLauncher.set(javaToolchains.launcherFor { spec ->
+            spec.languageVersion.set(JavaLanguageVersion.of(25))
+        })
+    }
+}
+
 minecraft {
     mappings channel: 'official', version: minecraft_version
     runs {

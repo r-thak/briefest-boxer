@@ -10,7 +10,6 @@ import net.minecraft.client.renderer.BufferBuilder;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.entity.Entity;
-import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockRayTraceResult;
@@ -44,12 +43,11 @@ public final class ForgeClientAimGuide {
         float partialTick = event.getPartialTicks();
         Vector3d camera = client.gameRenderer.getActiveRenderInfo().getProjectedView();
         EntityHighlightSelector.Bounds cameraBounds = bounds(camera);
-        LivingEntity nearest = null;
+        Entity nearest = null;
         AxisAlignedBB nearestBox = null;
         double nearestDistance = Double.POSITIVE_INFINITY;
         for (Entity entity : client.world.getAllEntities()) {
-            if (!(entity instanceof LivingEntity)) continue;
-            LivingEntity target = (LivingEntity) entity;
+            Entity target = entity;
             if (target == client.player || !target.isAlive() || target.isSpectator() || target.isInvisible()) continue;
             if (target instanceof PlayerEntity && !BriefestBoxerConfig.showAimPoints) continue;
             if (!(target instanceof PlayerEntity) && !BriefestBoxerConfig.showEntities) continue;

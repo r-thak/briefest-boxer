@@ -115,6 +115,26 @@ class SulfurCubeHitModelTest {
     }
 
     @Test
+    void absorbedBlockUsesSulfurArchetypeLaunchInsteadOfVanillaEntityKnockback() {
+        Vec3 sulfurCube = SulfurCubeHitModel.velocityAfterHit(
+                new Vec3(0.0, 0.0, 0.0), new Vec3(0.0, 0.0, 0.0),
+                new Vec3(0.0, 1.6, 0.0), new Vec3(0.0, 0.0, 1.0),
+                new Vec3(0.0, 0.0, 2.0), new Vec3(0.0, 0.5, 2.0), 1.0,
+                0.4125, 0.09, 4.0, 0.0, 0.0);
+        Vec3 emptyCube = SulfurCubeHitModel.vanillaVelocityAfterHit(
+                new Vec3(0.0, 0.0, 0.0), new Vec3(0.0, 0.0, 0.0),
+                new Vec3(0.0, 0.0, 1.0), new Vec3(0.0, 0.0, 2.0),
+                0.4, 0.0, 0.0, true);
+
+        // Regular absorbed blocks use 0.4125/0.09 archetype powers, while an
+        // empty cube delegates to vanilla LivingEntity knockback (0.4 strength).
+        assertEquals(0.33, sulfurCube.z, 1.0e-6);
+        assertEquals(0.072, sulfurCube.y, 1.0e-6);
+        assertEquals(0.4, emptyCube.z, 1.0e-9);
+        assertEquals(0.4, emptyCube.y, 1.0e-9);
+    }
+
+    @Test
     void vanillaKnockbackHalvesExistingMotionAndAppliesResistance() {
         Vec3 velocity = SulfurCubeHitModel.vanillaVelocityAfterHit(
                 new Vec3(0.6, 0.2, -0.4), new Vec3(0.0, 0.0, 0.0),

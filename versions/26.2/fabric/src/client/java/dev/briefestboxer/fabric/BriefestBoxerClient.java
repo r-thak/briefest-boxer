@@ -65,6 +65,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
     private static void renderEntityHighlights(Minecraft client, float partialTick) {
         if (!BriefestBoxerConfig.showAimPoints && !BriefestBoxerConfig.showEntities) {
             PATCHES.clear();
+            selectedEntityId = -1;
             return;
         }
         Entity viewer = client.player;
@@ -119,22 +120,36 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         int selectedId = -1;
         if (nearestInReach) {
             selectedId = nearest.entity.getId();
-            if (selectedEntityId != selectedId) PATCHES.clear();
             selectedEntityId = selectedId;
             EntityHighlightSelector.Bounds geometry = bounds(nearest.bounds);
             PatchState state = PATCHES.computeIfAbsent(selectedId, ignored -> new PatchState());
+            state.entity = nearest.entity;
             state.bounds = geometry;
         }
         if (!nearestInReach) {
             selectedEntityId = -1;
-            PATCHES.clear();
         }
         double easing = 1.0 - Math.exp(-dt / 0.18);
-        if (nearestInReach) {
-            PatchState state = PATCHES.get(selectedId);
-            state.opacity += (1.0 - state.opacity) * easing;
+        for (var iterator = PATCHES.entrySet().iterator(); iterator.hasNext();) {
+            Map.Entry<Integer, PatchState> entry = iterator.next();
+            PatchState state = entry.getValue();
+            if (state.entity == null || state.entity.isRemoved() || !state.entity.isAlive()) {
+                iterator.remove();
+                continue;
+            }
+            if (entry.getKey() != selectedId) {
+                state.bounds = bounds(hittableBounds(state.entity, partialTick));
+            }
+            double targetOpacity = entry.getKey() == selectedId ? 1.0 : 0.0;
+            state.opacity += (targetOpacity - state.opacity) * easing;
+            if (state.opacity < 0.002) {
+                iterator.remove();
+                continue;
+            }
+            int color = state.entity instanceof net.minecraft.world.entity.player.Player
+                    ? BriefestBoxerConfig.selectedColor() : BriefestBoxerConfig.otherColor();
             drawReachableSurface(client, viewer, cameraPosition, state.bounds, reach,
-                    BriefestBoxerConfig.selectedColor(), state.opacity);
+                    color, state.opacity);
         }
     }
 
@@ -189,6 +204,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
     private static final class PatchState {
         private EntityHighlightSelector.Bounds bounds;
         private double opacity;
+        private Entity entity;
         private PatchState() {}
     }
 

@@ -58,7 +58,7 @@ public final class ForgeClientAimGuide {
                     || target.isSpectator() || target.isInvisible()) continue;
             if (target instanceof AbstractClientPlayer && !BriefestBoxerConfig.showAimPoints) continue;
             if (!(target instanceof AbstractClientPlayer) && !BriefestBoxerConfig.showEntities) continue;
-            AABB box = target.getBoundingBox();
+            AABB box = hittableBounds(target, event.getPartialTick());
             net.minecraft.world.phys.Vec3 closest = closest(camera, box);
             double d2 = camera.distanceToSqr(closest);
             if (d2 > scanRadius * scanRadius || !visible(client, client.player, camera, closest)) continue;
@@ -74,6 +74,7 @@ public final class ForgeClientAimGuide {
             EntityHighlightSelector.Bounds geometry = bounds(nearest.box);
             PatchState state = PATCHES.computeIfAbsent(selectedId, id -> new PatchState(geometry));
             state.bounds = geometry;
+            state.playerTarget = nearest.entity instanceof AbstractClientPlayer;
             state.targetScale = 1.0;
         }
 
@@ -88,20 +89,38 @@ public final class ForgeClientAimGuide {
             state.scale += (state.targetScale - state.scale) * ease;
             if (state.scale < 0.002) { it.remove(); continue; }
             drawReachableSurface(out, matrices, camera, state.bounds, reach,
-                    BriefestBoxerConfig.selectedColor(), state.scale);
+                    client.player, state.playerTarget ? BriefestBoxerConfig.selectedColor()
+                            : BriefestBoxerConfig.otherColor(), state.scale);
         }
         client.renderBuffers().bufferSource().endBatch(RenderType.debugQuads());
     }
 
-    private static void drawReachableSurface(VertexConsumer out, Matrix4f matrices, net.minecraft.world.phys.Vec3 camera,
-            EntityHighlightSelector.Bounds bounds, double reach, int rgb, double opacity) {
+    private static void drawReachableSurface(VertexConsumer out, Matrix4f matrices,
+            net.minecraft.world.phys.Vec3 camera, EntityHighlightSelector.Bounds bounds, double reach,
+            Entity viewer, int rgb, double opacity) {
         int alpha = (int) (160 * opacity), r = rgb >>> 16 & 255, g = rgb >>> 8 & 255, b = rgb & 255;
         for (ReachableSurface.Triangle triangle : ReachableSurface.mesh(bounds, vector(camera), reach)) {
-            vertex(out, matrices, gameVec(triangle.a), r, g, b, alpha);
-            vertex(out, matrices, gameVec(triangle.b), r, g, b, alpha);
-            vertex(out, matrices, gameVec(triangle.c), r, g, b, alpha);
-            vertex(out, matrices, gameVec(triangle.c), r, g, b, alpha);
+            net.minecraft.world.phys.Vec3 a = gameVec(triangle.a);
+            net.minecraft.world.phys.Vec3 pointB = gameVec(triangle.b);
+            net.minecraft.world.phys.Vec3 c = gameVec(triangle.c);
+            net.minecraft.world.phys.Vec3 sample = new net.minecraft.world.phys.Vec3(
+                    (a.x + pointB.x + c.x) / 3.0, (a.y + pointB.y + c.y) / 3.0,
+                    (a.z + pointB.z + c.z) / 3.0);
+            if (!visible(Minecraft.getInstance(), viewer, camera, sample)) continue;
+            vertex(out, matrices, a, r, g, b, alpha);
+            vertex(out, matrices, pointB, r, g, b, alpha);
+            vertex(out, matrices, c, r, g, b, alpha);
+            vertex(out, matrices, c, r, g, b, alpha);
         }
+    }
+
+    private static AABB hittableBounds(Entity entity, float partialTick) {
+        double backstep = 1.0 - partialTick;
+        double margin = entity.getPickRadius();
+        return entity.getBoundingBox().inflate(margin).move(
+                (entity.xo - entity.getX()) * backstep,
+                (entity.yo - entity.getY()) * backstep,
+                (entity.zo - entity.getZ()) * backstep);
     }
 
     private static net.minecraft.world.phys.Vec3 gameVec(Vec3 p) { return new net.minecraft.world.phys.Vec3(p.x, p.y, p.z); }
@@ -131,6 +150,7 @@ public final class ForgeClientAimGuide {
     private static final class PatchState {
         private EntityHighlightSelector.Bounds bounds;
         private double scale, targetScale;
+        private boolean playerTarget;
         private PatchState(EntityHighlightSelector.Bounds bounds) { this.bounds = bounds; }
     }
     private static final class Target {

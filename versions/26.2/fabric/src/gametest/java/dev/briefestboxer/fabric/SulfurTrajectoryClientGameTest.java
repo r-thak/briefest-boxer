@@ -223,9 +223,10 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                             + ", displacement=" + clientDisplacement + " blocks");
                     context.computeOnClient(client -> {
                         SulfurCube cube = findCube(client, cubeId);
-                        // Preserve the launch-time camera orientation so the
-                        // screenshot shows the cube's displacement against the
-                        // fixed scenery instead of tracking it across the screen.
+                        // Turn the fixed camera perpendicular to the launch
+                        // direction. Looking straight down the flight path made
+                        // forward motion look like a static target in screenshots.
+                        client.player.setYRot(client.player.getYRot() + 35.0F);
                         client.hitResult = new EntityHitResult(cube, cube.getBoundingBox().getCenter());
                         return null;
                     });
@@ -341,7 +342,11 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                     new LaunchCase(Blocks.MYCELIUM, Items.NETHERITE_SWORD, -0.15),
                     new LaunchCase(Blocks.SOUL_SAND, Items.STONE_SWORD, 0.15),
                     new LaunchCase(Blocks.TNT, Items.STICK, 0.30),
-                    new LaunchCase(Blocks.STONE, Items.IRON_SWORD, 0.0)
+                    new LaunchCase(Blocks.STONE, Items.IRON_SWORD, 0.0),
+                    // Absorbed cubes bypass LivingEntity's armor damage path.
+                    // Give this one extreme armor so an incorrect prediction-side
+                    // armor reduction is obvious in the launch-velocity comparison.
+                    new LaunchCase(Blocks.OAK_LOG, Items.IRON_SWORD, 0.0, 30.0)
             };
             Vec3 lowAimOakLogLaunch = null;
             Vec3 highAimOakLogLaunch = null;
@@ -360,6 +365,8 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                     if (!cube.equipItem(new ItemStack(launchCase.block()))) {
                         throw new AssertionError("Sulfur Cube rejected archetype item " + launchCase.block());
                     }
+                    cube.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.ARMOR)
+                            .setBaseValue(launchCase.armorBase());
                     // Isolate absorbed-material physics in the per-archetype cases;
                     // the live-goal adult case above covers normal AI behavior.
                     cube.getGoalSelector().removeAllGoals(goal -> true);
@@ -376,6 +383,8 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
 
             Trajectory casePrediction = context.computeOnClient(client -> {
                 SulfurCube cube = findCube(client, caseCubeId);
+                cube.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.ARMOR)
+                        .setBaseValue(launchCase.armorBase());
                 cube.setOnGround(true);
                 cube.setDeltaMovement(Vec3.ZERO);
                 aimAt(client.player, cube, launchCase.aimOffset());
@@ -504,7 +513,12 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
         }
     }
     private record LaunchCase(net.minecraft.world.level.block.Block block,
-                              net.minecraft.world.item.Item weapon, double aimOffset) {}
+                              net.minecraft.world.item.Item weapon, double aimOffset, double armorBase) {
+        private LaunchCase(net.minecraft.world.level.block.Block block,
+                           net.minecraft.world.item.Item weapon, double aimOffset) {
+            this(block, weapon, aimOffset, 0.0);
+        }
+    }
     private record MotionSample(Vec3 center, Vec3 velocity, boolean onGround,
                                 double gravity, double bounciness, double airDrag, long worldTick) {}
     private record ClientCubeSample(Vec3 center, boolean alive, boolean invisible) {}

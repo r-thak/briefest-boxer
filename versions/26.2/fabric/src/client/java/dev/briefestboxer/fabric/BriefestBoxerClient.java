@@ -322,16 +322,19 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         var enchantmentRegistry = client.level.registryAccess().lookupOrThrow(Registries.ENCHANTMENT);
         double weaponBonus = weapon.getItem().getAttackDamageBonus(cube, baseDamage, damageSource);
         double damage = Math.max(0.0, baseDamage + weaponBonus);
-        // LivingEntity applies the Sulfur Cube's absorbed-material armor before
-        // forwarding damage into its hurt/knockback path. Model that reduced value.
-        damage = net.minecraft.world.damagesource.CombatRules.getDamageAfterAbsorb(cube,
-                (float) damage, damageSource,
-                (float) effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.ARMOR),
-                (float) effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.ARMOR_TOUGHNESS));
         boolean critical = fullStrength && client.player.fallDistance > 0.0 && !client.player.onGround()
                 && !client.player.onClimbable() && !client.player.isInWater()
                 && !client.player.isMobilityRestricted() && !client.player.isPassenger() && !client.player.isSprinting();
         if (critical) damage *= 1.5;
+        // Empty cubes use LivingEntity.hurtServer, which applies armor after the
+        // attack's critical modifier. An absorbed cube overrides hurtServer and
+        // directly invokes its knockback path, so armor does not reduce the hit.
+        if (bodyItem.isEmpty()) {
+            damage = net.minecraft.world.damagesource.CombatRules.getDamageAfterAbsorb(cube,
+                    (float) damage, damageSource,
+                    (float) effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.ARMOR),
+                    (float) effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.ARMOR_TOUGHNESS));
+        }
         int knockbackLevel = EnchantmentHelper.getItemEnchantmentLevel(
                 enchantmentRegistry.getOrThrow(Enchantments.KNOCKBACK), weapon);
         // LivingEntity.getKnockback applies item enchantments then halves the result.

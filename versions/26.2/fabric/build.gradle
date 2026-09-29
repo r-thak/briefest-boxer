@@ -22,6 +22,7 @@ sourceSets.main.java.srcDir('../../../common/src/main/java')
 
 repositories {
     maven { url = 'https://maven.terraformersmc.com/' }
+    maven { url = 'https://api.modrinth.com/maven' }
 }
 
 dependencies {
@@ -29,6 +30,25 @@ dependencies {
     implementation "net.fabricmc:fabric-loader:${loader_version}"
     implementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
     implementation "com.terraformersmc:modmenu:${modmenu_version}"
+    // Exercise the actual rendering hooks with Sodium by default in dev/game
+    // tests, without making it a dependency of the released Briefest Boxer jar.
+    if (!project.hasProperty('withoutSodium')) {
+        runtimeOnly "maven.modrinth:AANobbMI:a9YZH3ip"
+    }
+}
+
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = 'briefest_boxer_test'
+        enableGameTests = false
+        enableClientGameTests = true
+    }
+}
+
+sourceSets.named('gametest') {
+    compileClasspath += sourceSets.main.output + sourceSets.client.output
+    runtimeClasspath += sourceSets.main.output + sourceSets.client.output
 }
 
 processResources {

@@ -121,8 +121,13 @@ public final class Trajectory {
             // sampled block can be under only part of the cube (or be a different
             // height), so do not snap a collision-clipped path to a guessed surface.
             // Keep the sampled-height fallback for callers without a collision sampler.
+            // Avoid treating a sub-milliblock vertical clip as a settled ground
+            // contact. The live entity can momentarily be marked airborne after
+            // a near-zero bounce, and applies ground friction on the following
+            // collision tick instead.
             boolean hitGround = currentVelocity.y < 0.0
-                    && (hitY || (collisionSampler == null && crossedSampledGround));
+                    && ((hitY && Math.abs(movement.y - currentVelocity.y) >= 1.0E-3)
+                            || (collisionSampler == null && crossedSampledGround));
             if (hitGround) {
                 if (!hitY) {
                     double clippedY = surface.height + cubeHeight * 0.5 - previousPosition.y;

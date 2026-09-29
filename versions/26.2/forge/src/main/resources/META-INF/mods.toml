@@ -6,7 +6,7 @@ license="All Rights Reserved"
 modId="briefest_boxer"
 version="${file.jarVersion}"
 displayName="Briefest Boxer"
-description='''Client-side player aim points and Sulfur Cube trajectory preview.'''
+description='''Visible reachable entity hitboxes and adult Sulfur Cube trajectory preview.'''
 
 [[dependencies.briefest_boxer]]
 modId="forge"

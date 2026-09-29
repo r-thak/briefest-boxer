@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "briefest_boxer_test",
+  "version": "1.0.0",
+  "name": "Briefest Boxer Tests",
+  "environment": "client",
+  "entrypoints": {
+    "fabric-client-gametest": [
+      "dev.briefestboxer.fabric.SulfurTrajectoryClientGameTest"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "26.2",
+    "briefest_boxer": "*"
+  }
+}

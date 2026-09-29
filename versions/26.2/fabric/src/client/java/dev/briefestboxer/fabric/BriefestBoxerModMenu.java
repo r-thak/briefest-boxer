@@ -16,6 +16,7 @@ public final class BriefestBoxerModMenu implements ModMenuApi {
 
     private static final class BriefestBoxerConfigScreen extends Screen {
         private final Screen parent;
+        private int headingY;
 
         private BriefestBoxerConfigScreen(Screen parent) {
             super(Component.literal("Briefest Boxer Settings"));
@@ -24,24 +25,28 @@ public final class BriefestBoxerModMenu implements ModMenuApi {
 
         @Override
         protected void init() {
-            int x = width / 2 - 150;
-            int y = height / 2 - 136;
-            addRenderableWidget(button(x, y, 300, () -> "Player highlights: " + onOff(BriefestBoxerConfig.showAimPoints),
+            int buttonWidth = Math.min(300, Math.max(180, width - 24));
+            int x = (width - buttonWidth) / 2;
+            int rowGap = Math.max(20, Math.min(25, (height - 40 - 20) / 7));
+            int groupHeight = rowGap * 7 + 20;
+            int y = Math.max(20, (height - groupHeight) / 2);
+            headingY = y - 14;
+            addRenderableWidget(button(x, y, buttonWidth, () -> "Player highlights: " + onOff(BriefestBoxerConfig.showAimPoints),
                     () -> BriefestBoxerConfig.showAimPoints = !BriefestBoxerConfig.showAimPoints));
-            addRenderableWidget(button(x, y + 28, 300, () -> "Sulfur trajectory: " + onOff(BriefestBoxerConfig.showSulfurTrajectory),
+            addRenderableWidget(button(x, y + rowGap, buttonWidth, () -> "Sulfur trajectory: " + onOff(BriefestBoxerConfig.showSulfurTrajectory),
                     () -> BriefestBoxerConfig.showSulfurTrajectory = !BriefestBoxerConfig.showSulfurTrajectory));
-            addRenderableWidget(button(x, y + 56, 300, () -> "Other living entities: " + onOff(BriefestBoxerConfig.showEntities),
+            addRenderableWidget(button(x, y + rowGap * 2, buttonWidth, () -> "Other living entities: " + onOff(BriefestBoxerConfig.showEntities),
                     () -> BriefestBoxerConfig.showEntities = !BriefestBoxerConfig.showEntities));
-            addRenderableWidget(button(x, y + 84, 300, () -> "Scan radius: " + BriefestBoxerConfig.aimRange + " blocks",
+            addRenderableWidget(button(x, y + rowGap * 3, buttonWidth, () -> "Scan radius: " + BriefestBoxerConfig.aimRange + " blocks",
                     () -> BriefestBoxerConfig.aimRange = next(BriefestBoxerConfig.ranges(), BriefestBoxerConfig.aimRange)));
-            addRenderableWidget(button(x, y + 112, 300, () -> "Trajectory steps: " + BriefestBoxerConfig.trajectorySteps,
+            addRenderableWidget(button(x, y + rowGap * 4, buttonWidth, () -> "Trajectory steps: " + BriefestBoxerConfig.trajectorySteps,
                     () -> BriefestBoxerConfig.trajectorySteps = next(BriefestBoxerConfig.steps(), BriefestBoxerConfig.trajectorySteps)));
-            addRenderableWidget(button(x, y + 140, 300, () -> "Highlight color: " + BriefestBoxerConfig.colorName(BriefestBoxerConfig.selectedColor),
+            addRenderableWidget(button(x, y + rowGap * 5, buttonWidth, () -> "Highlight color: " + BriefestBoxerConfig.colorName(BriefestBoxerConfig.selectedColor),
                     () -> BriefestBoxerConfig.selectedColor = (BriefestBoxerConfig.selectedColor + 1) % 6));
-            addRenderableWidget(button(x, y + 168, 300, () -> "Trajectory color: " + BriefestBoxerConfig.colorName(BriefestBoxerConfig.trajectoryColor),
+            addRenderableWidget(button(x, y + rowGap * 6, buttonWidth, () -> "Trajectory color: " + BriefestBoxerConfig.colorName(BriefestBoxerConfig.trajectoryColor),
                     () -> BriefestBoxerConfig.trajectoryColor = (BriefestBoxerConfig.trajectoryColor + 1) % 6));
             addRenderableWidget(Button.builder(Component.literal("Done"), button -> onClose())
-                    .bounds(width / 2 - 100, y + 196, 200, 20).build());
+                    .bounds(width / 2 - Math.min(100, buttonWidth / 2), y + rowGap * 7, Math.min(200, buttonWidth), 20).build());
         }
 
         private Button button(int x, int y, int w, java.util.function.Supplier<String> label, Runnable action) {
@@ -55,7 +60,7 @@ public final class BriefestBoxerModMenu implements ModMenuApi {
         @Override
         public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
             super.extractRenderState(graphics, mouseX, mouseY, delta);
-            graphics.centeredText(font, title, width / 2, height / 2 - 156, 0xFFFFFF);
+            graphics.centeredText(font, title, width / 2, headingY, 0xFFFFFF);
         }
 
         @Override

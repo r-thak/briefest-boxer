@@ -117,7 +117,7 @@ public final class ForgeClientAimGuide {
         double d2 = camera.distanceToSqr(sample);
         if (d2 < 1.0E-8) return true;
         BlockHitResult hit = client.level.clip(new ClipContext(camera, sample,
-                ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, viewer));
+                ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, viewer));
         return hit.getType() != HitResult.Type.BLOCK || camera.distanceToSqr(hit.getLocation()) >= d2 - 0.01;
     }
 

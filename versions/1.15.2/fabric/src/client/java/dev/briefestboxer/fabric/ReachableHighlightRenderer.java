@@ -100,7 +100,7 @@ public final class ReachableHighlightRenderer {
         double distance = camera.squaredDistanceTo(point);
         if (distance < 1.0E-8) return true;
         BlockHitResult hit = client.world.rayTrace(new RayTraceContext(camera, point,
-                RayTraceContext.ShapeType.OUTLINE, RayTraceContext.FluidHandling.NONE, viewer));
+                RayTraceContext.ShapeType.COLLIDER, RayTraceContext.FluidHandling.NONE, viewer));
         return hit.getType() != HitResult.Type.BLOCK || camera.squaredDistanceTo(hit.getPos()) >= distance - 0.01;
     }
 

@@ -126,7 +126,7 @@ public final class ForgeClientAimGuide {
         double distance = camera.squareDistanceTo(point);
         if (distance < 1.0E-8) return true;
         BlockRayTraceResult hit = client.world.rayTraceBlocks(new RayTraceContext(camera, point,
-                RayTraceContext.BlockMode.VISUAL, RayTraceContext.FluidMode.NONE, viewer));
+                RayTraceContext.BlockMode.COLLIDER, RayTraceContext.FluidMode.NONE, viewer));
         return hit.getType() != BlockRayTraceResult.Type.BLOCK
                 || camera.squareDistanceTo(hit.getHitVec()) >= distance - 0.01;
     }

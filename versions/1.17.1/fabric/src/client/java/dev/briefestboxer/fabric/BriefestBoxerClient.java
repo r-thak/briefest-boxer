@@ -114,7 +114,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         double distance = camera.squaredDistanceTo(sample);
         if (distance < 1.0E-8) return true;
         BlockHitResult hit = context.world().raycast(new RaycastContext(camera, sample,
-                RaycastContext.ShapeType.VISUAL, RaycastContext.FluidHandling.NONE, viewer));
+                RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, viewer));
         return hit.getType() != HitResult.Type.BLOCK || camera.squaredDistanceTo(hit.getPos()) >= distance - 0.01;
     }
 

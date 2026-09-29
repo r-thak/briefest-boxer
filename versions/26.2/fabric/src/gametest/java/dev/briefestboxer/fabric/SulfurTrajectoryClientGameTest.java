@@ -126,9 +126,10 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 throw new AssertionError("The pre-hit trajectory test must use the actual aimed-at adult cube: "
                         + targetRay);
             }
-            // Capture the adult Sulfur Cube in its starting position before
-            // the server-side hit and world-ticked flight.
-            context.takeScreenshot("sulfur-trajectory-target");
+            // Keep a clearly labeled baseline for comparison with the in-flight
+            // capture below. The cube is stationary in this image by design;
+            // movement is only considered tested after the hit and client sync.
+            context.takeScreenshot("sulfur-trajectory-before-hit-static");
             var first = prediction.getPositions().get(0);
             var second = prediction.getPositions().get(1);
             Vec3 predictedLaunch = new Vec3(second.x - first.x, second.y - first.y, second.z - first.z);

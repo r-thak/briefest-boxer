@@ -289,17 +289,17 @@ public final class BriefestBoxerClient implements ClientModInitializer {
             Vec3 to = new Vec3(point.x, point.y, point.z).add(renderOffset);
             segments.add(new Vec3[] {from, to});
         }
-        int glow = (0x20 << 24) | (rgb & 0xFFFFFF);
-        int core = (0xA0 << 24) | (rgb & 0xFFFFFF);
+        int glow = (0x12 << 24) | (rgb & 0xFFFFFF);
+        int core = (0x60 << 24) | (rgb & 0xFFFFFF);
         Gizmos.addGizmo((primitives, progress) -> {
             for (Vec3[] segment : segments) {
                 Vec3 from = segment[0], to = segment[1];
                 Vec3 direction = to.subtract(from);
                 double distance = Math.max(0.1, camera.distanceTo(from.add(to).scale(0.5)));
-                // Width grows with camera distance, keeping the ribbon close to a
-                // two-pixel core and four-pixel glow instead of a broad nearby slab.
-                double coreHalfWidth = distance * 0.0011;
-                double glowHalfWidth = distance * 0.0032;
+                // Keep the world-space ribbon narrower than the old preview. The
+                // perspective scaling still prevents it from disappearing at range.
+                double coreHalfWidth = distance * 0.00055;
+                double glowHalfWidth = distance * 0.0015;
                 Vec3 view = camera.subtract(from.add(to).scale(0.5));
                 Vec3 side = direction.cross(view);
                 if (side.lengthSqr() < 1.0E-8) side = fallbackSide;
@@ -443,7 +443,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         int maxX = net.minecraft.util.Mth.ceil(box.maxX) - 1;
         int maxY = net.minecraft.util.Mth.ceil(box.maxY) - 1;
         int maxZ = net.minecraft.util.Mth.ceil(box.maxZ) - 1;
-        List<Vec3> currents = new ArrayList<>();
+        Vec3 current = Vec3.ZERO;
         double fluidHeight = 0.0;
         for (int x = minX; x <= maxX; x++) {
             for (int y = minY; y <= maxY; y++) {
@@ -454,14 +454,18 @@ public final class BriefestBoxerClient implements ClientModInitializer {
                     if (!fluid.is(net.minecraft.tags.FluidTags.WATER)) continue;
                     double top = y + fluid.getHeight(client.level, pos);
                     if (top < box.minY) continue;
+                    // EntityFluidInteraction updates the tracked depth before it
+                    // accumulates this block's current. Partial-depth scaling is
+                    // therefore based on the depth reached at this point in the
+                    // same X/Y/Z scan, rather than the final depth of the entity.
                     fluidHeight = Math.max(fluidHeight, top - box.minY);
-                    currents.add(fluid.getFlow(client.level, pos));
+                    Vec3 flow = fluid.getFlow(client.level, pos);
+                    if (fluidHeight < 0.4) flow = flow.scale(fluidHeight);
+                    current = current.add(flow);
                 }
             }
         }
         if (fluidHeight <= 0.0) return FluidSample.DRY;
-        Vec3 current = Vec3.ZERO;
-        for (Vec3 flow : currents) current = current.add(flow.scale(fluidHeight < 0.4 ? fluidHeight : 1.0));
         if (current.lengthSqr() > 1.0E-5) current = current.normalize().scale(0.014);
         else current = Vec3.ZERO;
         return new FluidSample(fluidHeight, current);

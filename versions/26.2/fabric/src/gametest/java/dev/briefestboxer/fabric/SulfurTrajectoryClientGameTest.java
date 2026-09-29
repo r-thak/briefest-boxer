@@ -290,7 +290,9 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 }
                 for (int x = -3; x <= 3; x++) {
                     level.setBlockAndUpdate(new BlockPos(x, -58, 29), Blocks.STONE.defaultBlockState());
-                    for (int z = 30; z <= 53; z++) {
+                    // Keep a short, one-way stream so the prediction exercises
+                    // both water entry and the current carried by flowing water.
+                    for (int z = 30; z <= 33; z++) {
                         level.setBlockAndUpdate(new BlockPos(x, -58, z), Blocks.WATER.defaultBlockState());
                     }
                 }

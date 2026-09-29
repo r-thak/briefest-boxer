@@ -13,7 +13,7 @@ public final class BriefestBoxerConfig {
     private static final String[] COLOR_NAMES = {"Red", "Cyan", "Purple", "Orange", "Green", "White"};
     private static final int[] RANGES = {8, 16, 24, 32, 48, 64};
     private static final int[] TOLERANCES = {1, 2, 3, 4, 5, 7, 10};
-    private static final int[] STEPS = {96, 128, 192, 256, 384, 512};
+    private static final int[] STEPS = {96, 128, 192, 256, 384, 512, 768, 1024};
 
     private static Path file;
     public static boolean showAimPoints = true;

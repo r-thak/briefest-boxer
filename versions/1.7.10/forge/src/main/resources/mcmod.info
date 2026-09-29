@@ -2,7 +2,7 @@
   {
     "modid": "briefest_boxer",
     "name": "Briefest Boxer",
-    "description": "Client-side player aim points.",
+    "description": "Highlights the reachable, visible surfaces of nearby entities.",
     "version": "${version}",
     "mcversion": "1.7.10",
     "clientSideOnly": true

@@ -3,7 +3,7 @@
   "id": "briefest_boxer",
   "version": "${version}",
   "name": "Briefest Boxer",
-  "description": "Client-side aim points for player hitboxes.",
+  "description": "Highlights the reachable, visible surfaces of nearby entities.",
   "environment": "client",
   "entrypoints": {
     "client": ["dev.briefestboxer.fabric.BriefestBoxerClient"]

@@ -6,7 +6,7 @@ license="All Rights Reserved"
 modId="briefest_boxer"
 version="${file.jarVersion}"
 displayName="Briefest Boxer"
-description='''Client-side player aim points.'''
+description='''Highlights the reachable, visible surfaces of nearby entities.'''
 
 [[dependencies.briefest_boxer]]
 modId="forge"

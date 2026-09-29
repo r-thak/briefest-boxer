@@ -138,7 +138,8 @@ public final class ForgeClientAimGuide {
                 iterator.remove();
                 continue;
             }
-            int color = BriefestBoxerConfig.selectedColor();
+            int color = state.entity instanceof net.minecraft.world.entity.player.Player
+                    ? BriefestBoxerConfig.selectedColor() : BriefestBoxerConfig.otherColor();
             drawReachableSurface(client, viewer, camera, state.bounds, reach,
                     color);
         }

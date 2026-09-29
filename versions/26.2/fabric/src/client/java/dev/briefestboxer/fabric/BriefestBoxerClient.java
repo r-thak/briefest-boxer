@@ -140,7 +140,8 @@ public final class BriefestBoxerClient implements ClientModInitializer {
                 iterator.remove();
                 continue;
             }
-            int color = BriefestBoxerConfig.selectedColor();
+            int color = state.entity instanceof net.minecraft.world.entity.player.Player
+                    ? BriefestBoxerConfig.selectedColor() : BriefestBoxerConfig.otherColor();
             drawReachableSurface(client, viewer, cameraPosition, state.bounds, reach,
                     color);
         }

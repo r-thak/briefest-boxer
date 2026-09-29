@@ -619,8 +619,8 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 var screen = ModMenu.getConfigScreen("briefest_boxer", null);
                 if (screen == null) throw new AssertionError("Mod Menu returned no Briefest Boxer config screen");
                 client.setScreenAndShow(screen);
-                if (screen.children().size() != 8) {
-                    throw new AssertionError("Briefest Boxer config screen should expose 8 controls, got "
+                if (screen.children().size() != 9) {
+                    throw new AssertionError("Briefest Boxer config screen should expose 9 controls, got "
                             + screen.children().size());
                 }
                 return null;

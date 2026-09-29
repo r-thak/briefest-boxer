@@ -27,8 +27,8 @@ public final class BriefestBoxerModMenu implements ModMenuApi {
         protected void init() {
             int buttonWidth = Math.min(300, Math.max(180, width - 24));
             int x = (width - buttonWidth) / 2;
-            int rowGap = Math.max(20, Math.min(25, (height - 40 - 20) / 7));
-            int groupHeight = rowGap * 7 + 20;
+            int rowGap = Math.max(20, Math.min(25, (height - 40 - 20) / 8));
+            int groupHeight = rowGap * 8 + 20;
             int y = Math.max(20, (height - groupHeight) / 2);
             headingY = y - 14;
             addRenderableWidget(button(x, y, buttonWidth, () -> "Player highlights: " + onOff(BriefestBoxerConfig.showAimPoints),
@@ -45,8 +45,10 @@ public final class BriefestBoxerModMenu implements ModMenuApi {
                     () -> BriefestBoxerConfig.selectedColor = (BriefestBoxerConfig.selectedColor + 1) % 6));
             addRenderableWidget(button(x, y + rowGap * 6, buttonWidth, () -> "Trajectory color: " + BriefestBoxerConfig.colorName(BriefestBoxerConfig.trajectoryColor),
                     () -> BriefestBoxerConfig.trajectoryColor = (BriefestBoxerConfig.trajectoryColor + 1) % 6));
+            addRenderableWidget(button(x, y + rowGap * 7, buttonWidth, () -> "Other entity color: " + BriefestBoxerConfig.colorName(BriefestBoxerConfig.otherColor),
+                    () -> BriefestBoxerConfig.otherColor = (BriefestBoxerConfig.otherColor + 1) % 6));
             addRenderableWidget(Button.builder(Component.literal("Done"), button -> onClose())
-                    .bounds(width / 2 - Math.min(100, buttonWidth / 2), y + rowGap * 7, Math.min(200, buttonWidth), 20).build());
+                    .bounds(width / 2 - Math.min(100, buttonWidth / 2), y + rowGap * 8, Math.min(200, buttonWidth), 20).build());
         }
 
         private Button button(int x, int y, int w, java.util.function.Supplier<String> label, Runnable action) {

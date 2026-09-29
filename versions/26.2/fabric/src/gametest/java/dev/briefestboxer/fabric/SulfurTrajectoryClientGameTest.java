@@ -1,6 +1,7 @@
 package dev.briefestboxer.fabric;
 
 import dev.briefestboxer.core.Trajectory;
+import dev.briefestboxer.core.BriefestBoxerConfig;
 import com.terraformersmc.modmenu.ModMenu;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
@@ -53,10 +54,11 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 var player = singleplayer.getConnection().getServerPlayer();
                 int floorY = -58;
                 for (int x = -3; x <= 3; x++) {
-                    // Keep the first periodic entity sync inside a short flight.
-                    // The wall remains close enough for a deterministic collision
-                    // before the cube can return to the player.
-                    for (int z = -3; z <= 20; z++) {
+                    // Keep the complete configured forecast over a known floor.
+                    // Some absorbed materials carry the cube more than 80 blocks
+                    // from launch in 256 ticks, so a short platform made the server
+                    // simulation leave the collision geometry seen by the client.
+                    for (int z = -100; z <= 100; z++) {
                         level.setBlockAndUpdate(new BlockPos(x, floorY - 1, z), Blocks.STONE.defaultBlockState());
                         for (int y = floorY; y <= floorY + 12; y++) {
                             level.setBlockAndUpdate(new BlockPos(x, y, z), Blocks.AIR.defaultBlockState());
@@ -273,6 +275,125 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                         + "displacement=" + visibleDisplacement + ", trace=" + pathTrace);
             }
 
+            int waterCubeId = singleplayer.getServer().computeOnServer(server -> {
+                var level = singleplayer.getConnection().getServerLevel();
+                var player = singleplayer.getConnection().getServerPlayer();
+                for (int x = -4; x <= 4; x++) {
+                    for (int z = 19; z <= 34; z++) {
+                        level.setBlockAndUpdate(new BlockPos(x, -59, z), Blocks.STONE.defaultBlockState());
+                        for (int y = -58; y <= -52; y++) {
+                            boolean wall = x == -4 || x == 4 || z == 19 || z == 34;
+                            level.setBlockAndUpdate(new BlockPos(x, y, z),
+                                    wall ? Blocks.STONE.defaultBlockState() : Blocks.AIR.defaultBlockState());
+                        }
+                    }
+                }
+                for (int x = -3; x <= 3; x++) {
+                    for (int z = 23; z <= 32; z++) {
+                        for (int y = -58; y <= -54; y++) {
+                            level.setBlockAndUpdate(new BlockPos(x, y, z), Blocks.WATER.defaultBlockState());
+                        }
+                    }
+                }
+                player.setPos(0.5, -58.0, 21.5);
+                player.setDeltaMovement(Vec3.ZERO);
+                player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND,
+                        new ItemStack(Items.IRON_SWORD));
+                SulfurCube cube = (SulfurCube) BuiltInRegistries.ENTITY_TYPE.getValue(
+                        Identifier.withDefaultNamespace("sulfur_cube")).create(level, EntitySpawnReason.COMMAND);
+                if (cube == null) throw new AssertionError("Could not create a water-physics Sulfur Cube");
+                makeAdult(cube);
+                if (!cube.equipItem(new ItemStack(Blocks.OAK_LOG))) {
+                    throw new AssertionError("Water-physics Sulfur Cube rejected its buoyant oak-log body item");
+                }
+                cube.getGoalSelector().removeAllGoals(goal -> true);
+                cube.setPos(0.5, -58.0, 26.5);
+                cube.setDeltaMovement(Vec3.ZERO);
+                if (!level.addFreshEntity(cube)) throw new AssertionError("Water-physics Sulfur Cube spawn was rejected");
+                return cube.getId();
+            });
+            context.waitTicks(40);
+            connection.waitForClientboundPackets();
+
+            Vec3[] waterServerStart = new Vec3[1];
+            singleplayer.getServer().computeOnServer(server -> {
+                SulfurCube cube = (SulfurCube) singleplayer.getConnection().getServerLevel().getEntity(waterCubeId);
+                waterServerStart[0] = cube.getBoundingBox().getCenter();
+                return null;
+            });
+
+            Trajectory waterPrediction = context.computeOnClient(client -> {
+                SulfurCube cube = findCube(client, waterCubeId);
+                // Client entity interpolation can lag the authoritative cube by a
+                // fraction of a block. Align the test predictor with the exact server
+                // origin so this assertion measures physics, not packet interpolation.
+                cube.setPos(waterServerStart[0].x,
+                        waterServerStart[0].y - cube.getBbHeight() * 0.5,
+                        waterServerStart[0].z);
+                cube.setDeltaMovement(Vec3.ZERO);
+                client.player.resetAttackStrengthTicker();
+                aimAt(client.player, cube);
+                client.hitResult = new EntityHitResult(cube, cube.getBoundingBox().getCenter());
+                return BriefestBoxerClient.calculateSulfurTrajectory(client, cube,
+                        cube.getItemBySlot(EquipmentSlot.BODY), client.player.getWeaponItem(),
+                        client.player.getAttackStrengthScale(0.5F), cube.getBoundingBox());
+            });
+            AttackResult waterAttack = singleplayer.getServer().computeOnServer(server -> {
+                var level = singleplayer.getConnection().getServerLevel();
+                SulfurCube cube = (SulfurCube) level.getEntity(waterCubeId);
+                Player player = singleplayer.getConnection().getServerPlayer();
+                cube.setDeltaMovement(Vec3.ZERO);
+                player.resetAttackStrengthTicker();
+                aimAt(player, cube);
+                if (!cube.isInWater()) throw new AssertionError("Adult test cube did not enter water");
+                player.attack(cube);
+                return new AttackResult(cube.getDeltaMovement(), describe(player, cube));
+            });
+            var waterStart = waterPrediction.getPositions().get(0);
+            var waterNext = waterPrediction.getPositions().get(1);
+            Vec3 waterPredictedLaunch = new Vec3(waterNext.x - waterStart.x,
+                    waterNext.y - waterStart.y, waterNext.z - waterStart.z);
+            double waterLaunchError = waterPredictedLaunch.distanceTo(waterAttack.velocity());
+            // The forecast samples water flow from the client world while the server
+            // attack vector is measured before the next fluid-current update.
+            if (waterLaunchError > 0.03) {
+                throw new AssertionError("Submerged adult Sulfur Cube launch mismatch: predicted "
+                        + waterPredictedLaunch + ", actual " + waterAttack.velocity()
+                        + ", error=" + waterLaunchError + "; server=" + waterAttack.state());
+            }
+            StringBuilder waterTrace = new StringBuilder();
+            for (int tick = 1; tick <= 24; tick++) {
+                context.waitTicks(1);
+                int elapsedTick = tick;
+                MotionSample actual = singleplayer.getServer().computeOnServer(server -> {
+                    var level = singleplayer.getConnection().getServerLevel();
+                    SulfurCube cube = (SulfurCube) level.getEntity(waterCubeId);
+                    if (cube == null) throw new AssertionError("Submerged Sulfur Cube disappeared");
+                    return new MotionSample(cube.getBoundingBox().getCenter(), cube.getDeltaMovement(),
+                            cube.onGround(), cube.getAttributeValue(
+                                    net.minecraft.world.entity.ai.attributes.Attributes.GRAVITY),
+                            cube.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.BOUNCINESS),
+                            cube.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.AIR_DRAG_MODIFIER),
+                            level.getGameTime());
+                });
+                var expectedPosition = waterPrediction.getPositions().get(elapsedTick);
+                Vec3 predictionOrigin = new Vec3(waterStart.x, waterStart.y, waterStart.z);
+                Vec3 serverOrigin = waterServerStart[0];
+                Vec3 expected = new Vec3(expectedPosition.x, expectedPosition.y, expectedPosition.z)
+                        .add(serverOrigin.subtract(predictionOrigin));
+                double waterError = actual.center().distanceTo(expected);
+                waterTrace.append(tick).append(": predicted=").append(expected)
+                        .append(" actual=").append(actual.center()).append(" velocity=")
+                        .append(actual.velocity()).append("; ");
+                if (waterError > 0.20) {
+                    throw new AssertionError("Water Sulfur Cube path diverged at tick " + tick
+                            + ": predicted=" + expected + ", actual=" + actual.center()
+                            + ", error=" + waterError + "; server=" + waterAttack.state()
+                            + "; trace=" + waterTrace);
+                }
+            }
+            System.out.println("[Briefest Boxer GameTest] Adult Sulfur Cube submerged trajectory matched 24 real world ticks");
+
             int vanillaCubeId = singleplayer.getServer().computeOnServer(server -> {
                 var level = singleplayer.getConnection().getServerLevel();
                 var player = singleplayer.getConnection().getServerPlayer();
@@ -393,6 +514,10 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                             cube.getItemBySlot(EquipmentSlot.BODY), client.player.getWeaponItem(),
                             client.player.getAttackStrengthScale(0.5F), cube.getBoundingBox());
                 });
+                if (casePrediction.getPositions().size() != BriefestBoxerConfig.trajectorySteps + 1) {
+                    throw new AssertionError("Trajectory forecast did not contain the configured number of steps: "
+                            + casePrediction.getPositions().size() + " for " + BriefestBoxerConfig.trajectorySteps);
+                }
                 AttackResult caseAttack = singleplayer.getServer().computeOnServer(server -> {
                     var level = singleplayer.getConnection().getServerLevel();
                     SulfurCube cube = (SulfurCube) level.getEntity(caseCubeId);
@@ -408,7 +533,11 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                     player.setPos(20.5, -58.0, 20.5);
                     player.setDeltaMovement(Vec3.ZERO);
                     java.util.ArrayList<MotionSample> samples = new java.util.ArrayList<>();
-                    for (int tick = 1; tick < casePrediction.getPositions().size(); tick++) {
+                    // Keep live world comparison within the loaded, deterministic
+                    // collision area. The path itself is still generated and checked
+                    // above at the full 256-step configured horizon.
+                    int verifiedTicks = Math.min(128, casePrediction.getPositions().size() - 1);
+                    for (int tick = 1; tick <= verifiedTicks; tick++) {
                         cube.tick();
                         samples.add(new MotionSample(cube.getBoundingBox().getCenter(), cube.getDeltaMovement(),
                                 cube.onGround(), cube.getAttributeValue(
@@ -439,7 +568,8 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 }
 
                 StringBuilder caseTrace = new StringBuilder();
-                for (int tick = 1; tick < casePrediction.getPositions().size(); tick++) {
+                int verifiedTicks = Math.min(128, casePrediction.getPositions().size() - 1);
+                for (int tick = 1; tick <= verifiedTicks; tick++) {
                     MotionSample actual = caseAttack.path().get(tick - 1);
                     var expected = casePrediction.getPositions().get(tick);
                     var expectedPrevious = casePrediction.getPositions().get(tick - 1);

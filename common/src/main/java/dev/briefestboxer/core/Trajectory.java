@@ -25,6 +25,15 @@ public final class Trajectory {
         Vec3 clipMovement(Vec3 position, Vec3 movement);
     }
 
+    /** Optional version-specific travel hooks, such as an entity's liquid movement rules. */
+    public interface StepPhysicsSampler {
+        /** Return null to use the ordinary acceleration/air-drag step. */
+        Vec3 beforeMovement(Vec3 position, Vec3 velocity, int tickIndex);
+        /** Return null to use the ordinary acceleration/air-drag step. */
+        Vec3 afterMovement(Vec3 from, Vec3 to, Vec3 collisionAdjustedVelocity,
+                           int tickIndex, boolean wasFalling);
+    }
+
     public static final class Surface {
         public final double height;
         public final double bounciness;
@@ -84,6 +93,18 @@ public final class Trajectory {
                                                double bounciness, double cubeHeight, double frictionModifier,
                                                boolean initiallyOnGround, GroundSampler groundSampler,
                                                CollisionSampler collisionSampler, int ticks) {
+        return withGroundBounces(position, velocity, acceleration, horizontalAirDrag, verticalAirDrag,
+                bounciness, cubeHeight, frictionModifier, initiallyOnGround, groundSampler,
+                collisionSampler, null, ticks);
+    }
+
+    /** Integrates with adapter-defined per-tick travel physics in addition to collision and bounce. */
+    public static Trajectory withGroundBounces(Vec3 position, Vec3 velocity, Vec3 acceleration,
+                                               double horizontalAirDrag, double verticalAirDrag,
+                                               double bounciness, double cubeHeight, double frictionModifier,
+                                               boolean initiallyOnGround, GroundSampler groundSampler,
+                                               CollisionSampler collisionSampler,
+                                               StepPhysicsSampler stepPhysicsSampler, int ticks) {
         if (position == null || velocity == null || acceleration == null || groundSampler == null) {
             throw new IllegalArgumentException("motion and ground sampler are required");
         }
@@ -103,19 +124,23 @@ public final class Trajectory {
         for (int tick = 0; tick < ticks; tick++) {
             // LivingEntity moves using its current velocity, then applies gravity and air drag.
             Vec3 previousPosition = currentPosition;
-            Vec3 movement = collisionSampler == null ? currentVelocity
-                    : collisionSampler.clipMovement(currentPosition, currentVelocity);
+            Vec3 movementVelocity = stepPhysicsSampler == null ? null
+                    : stepPhysicsSampler.beforeMovement(currentPosition, currentVelocity, tick);
+            if (movementVelocity == null) movementVelocity = currentVelocity;
+            if (movementVelocity == null) throw new IllegalArgumentException("physics sampler returned null velocity");
+            Vec3 movement = collisionSampler == null ? movementVelocity
+                    : collisionSampler.clipMovement(currentPosition, movementVelocity);
             if (movement == null) throw new IllegalArgumentException("collision sampler returned null movement");
-            boolean hitX = Math.abs(movement.x - currentVelocity.x) > 1.0E-7;
-            boolean hitY = Math.abs(movement.y - currentVelocity.y) > 1.0E-7;
-            boolean hitZ = Math.abs(movement.z - currentVelocity.z) > 1.0E-7;
+            boolean hitX = Math.abs(movement.x - movementVelocity.x) > 1.0E-7;
+            boolean hitY = Math.abs(movement.y - movementVelocity.y) > 1.0E-7;
+            boolean hitZ = Math.abs(movement.z - movementVelocity.z) > 1.0E-7;
             currentPosition = currentPosition.add(movement);
             // A swept entity collision tells us exactly when a ground sample is
             // needed. Avoid ray-sampling the terrain twice per airborne tick; long
             // Sulfur Cube predictions otherwise multiply that cost every frame.
-            Surface surface = collisionSampler == null || (hitY && currentVelocity.y < 0.0)
+            Surface surface = collisionSampler == null || (hitY && movementVelocity.y < 0.0)
                     ? groundSampler.sample(currentPosition.x, currentPosition.y, currentPosition.z) : null;
-            boolean crossedSampledGround = surface != null && currentVelocity.y < 0.0
+            boolean crossedSampledGround = surface != null && movementVelocity.y < 0.0
                     && currentPosition.y - cubeHeight * 0.5 <= surface.height + 1.0E-7;
             // The adapter's swept AABB clip is authoritative about contact. A nearby
             // sampled block can be under only part of the cube (or be a different
@@ -125,8 +150,8 @@ public final class Trajectory {
             // contact. The live entity can momentarily be marked airborne after
             // a near-zero bounce, and applies ground friction on the following
             // collision tick instead.
-            boolean hitGround = currentVelocity.y < 0.0
-                    && ((hitY && Math.abs(movement.y - currentVelocity.y) >= 1.0E-3)
+            boolean hitGround = movementVelocity.y < 0.0
+                    && ((hitY && Math.abs(movement.y - movementVelocity.y) >= 1.0E-3)
                             || (collisionSampler == null && crossedSampledGround));
             if (hitGround) {
                 if (!hitY) {
@@ -141,31 +166,47 @@ public final class Trajectory {
 
             // Entity.restituteMovementAfterCollisions reverses blocked horizontal axes
             // using entity bounciness. A zero bounciness naturally stops the axis.
-            double nextX = hitX ? -currentVelocity.x * bounciness : currentVelocity.x;
-            double nextY = currentVelocity.y;
-            double nextZ = hitZ ? -currentVelocity.z * bounciness : currentVelocity.z;
+            double nextX = hitX ? -movementVelocity.x * bounciness : movementVelocity.x;
+            double nextY = movementVelocity.y;
+            double nextZ = hitZ ? -movementVelocity.z * bounciness : movementVelocity.z;
             if (hitY) {
                 double effectiveBounce = bounciness;
                 if (hitGround && surface != null) {
-                    if (surface.suppressesBounce || -currentVelocity.y < -acceleration.y) {
+                    if (surface.suppressesBounce || -movementVelocity.y < -acceleration.y) {
                         effectiveBounce = 0.0;
                     } else {
                         effectiveBounce = Math.max(effectiveBounce, surface.bounciness);
                     }
                 }
-                double impactFraction = Math.abs(currentVelocity.y) > 1.0E-12
-                        ? movement.y / currentVelocity.y : 0.0;
+                double impactFraction = Math.abs(movementVelocity.y) > 1.0E-12
+                        ? movement.y / movementVelocity.y : 0.0;
                 double gravityCorrection = impactFraction * Math.max(0.0, -acceleration.y);
                 double impactDrag = 1.0 + (verticalAirDrag - 1.0) * impactFraction;
-                nextY = (gravityCorrection - currentVelocity.y) * impactDrag * effectiveBounce;
+                nextY = (gravityCorrection - movementVelocity.y) * impactDrag * effectiveBounce;
             }
-            currentVelocity = new Vec3(nextX, nextY, nextZ).add(acceleration);
+            Vec3 collisionAdjustedVelocity = new Vec3(nextX, nextY, nextZ);
+            Vec3 sampledVelocity = stepPhysicsSampler == null ? null
+                    : stepPhysicsSampler.afterMovement(previousPosition, currentPosition,
+                            collisionAdjustedVelocity, tick, movementVelocity.y <= 0.0);
+            currentVelocity = sampledVelocity == null
+                    ? collisionAdjustedVelocity.add(acceleration) : sampledVelocity;
             double groundFriction = onGround && currentSurface != null
                     ? clamp(1.0 - (1.0 - currentSurface.friction) * frictionModifier, 0.0, 1.0)
                     : 1.0;
-            currentVelocity = new Vec3(currentVelocity.x * horizontalAirDrag * groundFriction,
-                    currentVelocity.y * verticalAirDrag,
-                    currentVelocity.z * horizontalAirDrag * groundFriction);
+            if (sampledVelocity == null) {
+                currentVelocity = new Vec3(currentVelocity.x * horizontalAirDrag * groundFriction,
+                        currentVelocity.y * verticalAirDrag,
+                        currentVelocity.z * horizontalAirDrag * groundFriction);
+                // LivingEntity/Entity stop carrying sub-milliblock horizontal
+                // motion once grounded. Keeping these tiny values forever makes
+                // long previews drift across the floor after the real cube settles.
+                if (onGround) {
+                    currentVelocity = new Vec3(
+                            Math.abs(currentVelocity.x) < 0.003 ? 0.0 : currentVelocity.x,
+                            currentVelocity.y,
+                            Math.abs(currentVelocity.z) < 0.003 ? 0.0 : currentVelocity.z);
+                }
+            }
             currentSurface = surface;
             onGround = hitGround;
             samples.add(currentPosition);

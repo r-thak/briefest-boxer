@@ -13,7 +13,7 @@ public final class BriefestBoxerConfig {
     private static final String[] COLOR_NAMES = {"Red", "Cyan", "Purple", "Orange", "Green", "White"};
     private static final int[] RANGES = {8, 16, 24, 32, 48, 64};
     private static final int[] TOLERANCES = {1, 2, 3, 4, 5, 7, 10};
-    private static final int[] STEPS = {48, 96, 128, 192, 256};
+    private static final int[] STEPS = {96, 128, 192, 256, 384, 512};
 
     private static Path file;
     public static boolean showAimPoints = true;
@@ -21,7 +21,7 @@ public final class BriefestBoxerConfig {
     public static boolean showSulfurTrajectory = true;
     public static int aimRange = 32;
     public static int aimTolerance = 4;
-    public static int trajectorySteps = 128;
+    public static int trajectorySteps = 256;
     public static int selectedColor = 0;
     public static int otherColor = 1;
     public static int trajectoryColor = 2;
@@ -39,9 +39,9 @@ public final class BriefestBoxerConfig {
                 showSulfurTrajectory = values.getProperty("showSulfurTrajectory", "true").equalsIgnoreCase("true");
                 aimRange = valid(values, "aimRange", RANGES, 32);
                 aimTolerance = valid(values, "aimTolerance", TOLERANCES, 4);
-                trajectorySteps = valid(values, "trajectorySteps", STEPS, 128);
-                // 48 was the old default and often cut off fast Sulfur Cube launches.
-                if (trajectorySteps == 48) trajectorySteps = 128;
+                trajectorySteps = valid(values, "trajectorySteps", STEPS, 256);
+                // The old 48-tick default often cut off fast Sulfur Cube launches.
+                if (trajectorySteps == 48) trajectorySteps = 256;
                 selectedColor = colorIndex(values, "selectedColor", 0);
                 otherColor = colorIndex(values, "otherColor", 1);
                 trajectoryColor = colorIndex(values, "trajectoryColor", 2);

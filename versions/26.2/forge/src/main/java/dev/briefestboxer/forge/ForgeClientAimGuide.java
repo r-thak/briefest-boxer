@@ -309,6 +309,7 @@ public final class ForgeClientAimGuide {
                 effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.FRICTION_MODIFIER), cube.onGround(),
                 (x, y, z) -> sampleCubeSurface(client, targetCube, x, y, z),
                 (position, movement) -> clipCubeMovement(client, targetCube, startingBounds, center, position, movement),
+                liquidPhysics(client, targetCube, bodyItem, archetypes, startingBounds, center),
                 BriefestBoxerConfig.trajectorySteps);
 
         int pathColor = 0xFF000000 | BriefestBoxerConfig.trajectoryColor();
@@ -316,7 +317,7 @@ public final class ForgeClientAimGuide {
         dev.briefestboxer.core.Vec3 endPosition = path.getPositions().get(path.getPositions().size() - 1);
         Vec3 end = new Vec3(endPosition.x, endPosition.y, endPosition.z).add(renderOffset);
         AABB predictedBounds = renderBounds.move(end.subtract(renderCenter));
-        int translucent = (0xCC << 24) | BriefestBoxerConfig.trajectoryColor();
+        int translucent = (0x77 << 24) | BriefestBoxerConfig.trajectoryColor();
         Gizmos.cuboid(predictedBounds, GizmoStyle.strokeAndFill(pathColor, 7.0F, translucent))
                 .setAlwaysOnTop().persistForMillis(GIZMO_REFRESH_LIFETIME_MS);
         Gizmos.point(end, pathColor, 64.0F).setAlwaysOnTop().persistForMillis(GIZMO_REFRESH_LIFETIME_MS);
@@ -340,14 +341,17 @@ public final class ForgeClientAimGuide {
                     new Vec3(previous.x, previous.y, previous.z).add(renderOffset),
                     new Vec3(point.x, point.y, point.z).add(renderOffset)});
         }
-        int glow = (0x55 << 24) | (rgb & 0xFFFFFF);
-        int core = (0xEE << 24) | (rgb & 0xFFFFFF);
+        int glow = (0x20 << 24) | (rgb & 0xFFFFFF);
+        int core = (0xA0 << 24) | (rgb & 0xFFFFFF);
         Gizmos.addGizmo((primitives, progress) -> {
-            double glowHalfWidth = 0.09;
-            double coreHalfWidth = 0.044;
             for (Vec3[] segment : segments) {
                 Vec3 from = segment[0], to = segment[1];
                 Vec3 direction = to.subtract(from);
+                double distance = Math.max(0.1, camera.distanceTo(from.add(to).scale(0.5)));
+                // Width grows with camera distance, keeping the ribbon close to a
+                // two-pixel core and four-pixel glow instead of a broad nearby slab.
+                double coreHalfWidth = distance * 0.0011;
+                double glowHalfWidth = distance * 0.0032;
                 Vec3 view = camera.subtract(from.add(to).scale(0.5));
                 Vec3 side = direction.cross(view);
                 if (side.lengthSqr() < 1.0E-8) side = fallbackSide;
@@ -360,6 +364,106 @@ public final class ForgeClientAimGuide {
                         to.add(coreSide), to.subtract(coreSide), core);
             }
         }).setAlwaysOnTop().persistForMillis(GIZMO_REFRESH_LIFETIME_MS);
+    }
+
+    private static Trajectory.StepPhysicsSampler liquidPhysics(Minecraft client, SulfurCube cube,
+            ItemStack bodyItem, List<SulfurCubeArchetype> archetypes, AABB startingBounds, Vec3 startingCenter) {
+        boolean buoyant = !bodyItem.isEmpty() && archetypes.stream().anyMatch(SulfurCubeArchetype::buoyant);
+        double gravity = effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.GRAVITY);
+        double fluidJumpThreshold = cube.getFluidJumpThreshold();
+        int startingTick = cube.tickCount;
+        return new Trajectory.StepPhysicsSampler() {
+            @Override
+            public dev.briefestboxer.core.Vec3 beforeMovement(dev.briefestboxer.core.Vec3 position,
+                    dev.briefestboxer.core.Vec3 velocity, int tickIndex) {
+                Vec3 worldPosition = new Vec3(position.x, position.y, position.z);
+                FluidSample fluid = sampleWater(client, startingBounds, startingCenter, worldPosition);
+                // The first displacement is the hit impulse itself. Entity.tick has
+                // already run for the hit frame, so don't apply next-tick fluid flow
+                // until subsequent predicted travel steps.
+                if (tickIndex == 0 || !fluid.inWater() || fluid.current.lengthSqr() < 1.0E-12) return null;
+                Vec3 current = fluid.current;
+                if (velocity.x * velocity.x + velocity.z * velocity.z < 9.0E-6
+                        && current.horizontalDistance() < 0.0045) {
+                    current = new Vec3(current.x, 0.0, current.z).normalize().scale(0.0045);
+                }
+                return new dev.briefestboxer.core.Vec3(
+                        velocity.x + current.x, velocity.y + current.y, velocity.z + current.z);
+            }
+
+            @Override
+            public dev.briefestboxer.core.Vec3 afterMovement(dev.briefestboxer.core.Vec3 from,
+                    dev.briefestboxer.core.Vec3 to, dev.briefestboxer.core.Vec3 collisionVelocity,
+                    int tickIndex, boolean wasFalling) {
+                // Minecraft consumes the fluid state sampled at the start of travel;
+                // the post-move position only refreshes the state for the next tick.
+                Vec3 worldFrom = new Vec3(from.x, from.y, from.z);
+                FluidSample fluid = sampleWater(client, startingBounds, startingCenter, worldFrom);
+                if (!fluid.inWater()) return null;
+
+                Vec3 velocity = new Vec3(collisionVelocity.x, collisionVelocity.y, collisionVelocity.z)
+                        .multiply(0.8, 0.8, 0.8);
+                double vertical = velocity.y;
+                if (gravity != 0.0 && !cube.isSprinting()) {
+                    if (wasFalling && Math.abs(vertical - 0.005) > 0.003
+                            && Math.abs(vertical - gravity / 16.0) < 0.003) {
+                        vertical = -0.003;
+                    } else {
+                        vertical -= gravity / 16.0;
+                    }
+                }
+                if (buoyant) {
+                    double floatAmount = fluid.height - fluidJumpThreshold
+                            + 0.2 * Math.sin((startingTick + tickIndex + 1) * 0.4);
+                    if (floatAmount > 0.0) vertical += Math.min(1.0, floatAmount) * 0.04;
+                }
+                return new dev.briefestboxer.core.Vec3(velocity.x, vertical, velocity.z);
+            }
+        };
+    }
+
+    private static FluidSample sampleWater(Minecraft client, AABB startingBounds,
+            Vec3 startingCenter, Vec3 predictedCenter) {
+        AABB box = startingBounds.move(predictedCenter.subtract(startingCenter));
+        int minX = net.minecraft.util.Mth.floor(box.minX);
+        int minY = net.minecraft.util.Mth.floor(box.minY);
+        int minZ = net.minecraft.util.Mth.floor(box.minZ);
+        int maxX = net.minecraft.util.Mth.ceil(box.maxX) - 1;
+        int maxY = net.minecraft.util.Mth.ceil(box.maxY) - 1;
+        int maxZ = net.minecraft.util.Mth.ceil(box.maxZ) - 1;
+        List<Vec3> currents = new ArrayList<>();
+        double fluidHeight = 0.0;
+        for (int x = minX; x <= maxX; x++) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    net.minecraft.core.BlockPos pos = new net.minecraft.core.BlockPos(x, y, z);
+                    if (!client.level.hasChunkAt(pos)) continue;
+                    var fluid = client.level.getFluidState(pos);
+                    if (!fluid.is(net.minecraft.tags.FluidTags.WATER)) continue;
+                    double top = y + fluid.getHeight(client.level, pos);
+                    if (top < box.minY) continue;
+                    fluidHeight = Math.max(fluidHeight, top - box.minY);
+                    currents.add(fluid.getFlow(client.level, pos));
+                }
+            }
+        }
+        if (fluidHeight <= 0.0) return FluidSample.DRY;
+        Vec3 current = Vec3.ZERO;
+        for (Vec3 flow : currents) current = current.add(flow.scale(fluidHeight < 0.4 ? fluidHeight : 1.0));
+        if (current.lengthSqr() > 1.0E-5) current = current.normalize().scale(0.014);
+        else current = Vec3.ZERO;
+        return new FluidSample(fluidHeight, current);
+    }
+
+    private static final class FluidSample {
+        private static final FluidSample DRY = new FluidSample(0.0, Vec3.ZERO);
+        private final double height;
+        private final Vec3 current;
+        private FluidSample(double height, Vec3 current) {
+            this.height = height;
+            this.current = current;
+        }
+        private boolean inWater() { return height > 0.0; }
     }
 
     private static Trajectory.Surface sampleCubeSurface(Minecraft client, SulfurCube cube,

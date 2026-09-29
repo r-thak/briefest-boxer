@@ -22,7 +22,7 @@ Each row is a separate loader build. Release artifacts are not cross-version com
 | 1.18.2 | Fabric | Yes | — | Fabric built and client-launched |
 | 1.19.2 | Fabric | Yes | — | Fabric built and client-launched |
 | 1.20.1 | Forge and Fabric | Yes | — | Both loader builds succeed; Fabric client-launched |
-| 1.21.1 | Forge and Fabric | Yes | — | Forge and Fabric builds succeed; both dev clients launch and load the mod |
+| 1.21.1 | Forge and Fabric | Yes | — | Forge and Fabric builds succeed; Forge pins 52.0.16 for the tested OptiFine HD U J1 startup; in-world OptiFine rendering remains unverified |
 | 26.2 | Forge and Fabric | Yes | Yes | Forge and Fabric builds succeed; Fabric game tests use adult size-2 cubes, match launches for absorbed and empty cubes, and track all 256 forecast ticks within 30 cm across 12 absorbed materials, including a wall rebound; an oak-log adult cube's submerged path matches 24 real server ticks; same-material upper/lower aim cases verify that targeting different parts changes launch height; Mod Menu's config screen and all eight controls are verified; dev client co-loads Sodium and Mod Menu |
 
 The target list covers established modded release hubs rather than every patch release. Legacy Fabric supplies older targets. Forge builds are included where requested; NeoForge projects are excluded from the release script and bundle.

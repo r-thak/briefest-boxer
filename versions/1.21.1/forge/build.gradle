@@ -31,6 +31,10 @@ repositories {
 
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+    if (project.hasProperty('optifineJar')) {
+        // Optional local-only compatibility test; the OptiFine jar is never bundled.
+        runtimeOnly files(project.property('optifineJar'))
+    }
 }
 
 // Forge 52's launcher requires the automatic module name jopt.simple from 5.0.4.

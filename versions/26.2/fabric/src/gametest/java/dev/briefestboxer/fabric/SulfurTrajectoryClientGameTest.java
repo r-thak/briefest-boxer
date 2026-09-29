@@ -279,20 +279,19 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 var level = singleplayer.getConnection().getServerLevel();
                 var player = singleplayer.getConnection().getServerPlayer();
                 for (int x = -4; x <= 4; x++) {
-                    for (int z = 19; z <= 34; z++) {
+                    for (int z = 19; z <= 54; z++) {
                         level.setBlockAndUpdate(new BlockPos(x, -59, z), Blocks.STONE.defaultBlockState());
                         for (int y = -58; y <= -52; y++) {
-                            boolean wall = x == -4 || x == 4 || z == 19 || z == 34;
+                            boolean wall = x == -4 || x == 4 || z == 19 || z == 54;
                             level.setBlockAndUpdate(new BlockPos(x, y, z),
                                     wall ? Blocks.STONE.defaultBlockState() : Blocks.AIR.defaultBlockState());
                         }
                     }
                 }
                 for (int x = -3; x <= 3; x++) {
-                    for (int z = 23; z <= 32; z++) {
-                        for (int y = -58; y <= -54; y++) {
-                            level.setBlockAndUpdate(new BlockPos(x, y, z), Blocks.WATER.defaultBlockState());
-                        }
+                    level.setBlockAndUpdate(new BlockPos(x, -58, 29), Blocks.STONE.defaultBlockState());
+                    for (int z = 30; z <= 53; z++) {
+                        level.setBlockAndUpdate(new BlockPos(x, -58, z), Blocks.WATER.defaultBlockState());
                     }
                 }
                 player.setPos(0.5, -58.0, 21.5);
@@ -345,7 +344,7 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 cube.setDeltaMovement(Vec3.ZERO);
                 player.resetAttackStrengthTicker();
                 aimAt(player, cube);
-                if (!cube.isInWater()) throw new AssertionError("Adult test cube did not enter water");
+                if (cube.isInWater()) throw new AssertionError("Water-entry test cube must start dry");
                 player.attack(cube);
                 return new AttackResult(cube.getDeltaMovement(), describe(player, cube));
             });
@@ -362,6 +361,8 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                         + ", error=" + waterLaunchError + "; server=" + waterAttack.state());
             }
             StringBuilder waterTrace = new StringBuilder();
+            boolean[] enteredWater = {false};
+            double maxWaterError = 0.0;
             for (int tick = 1; tick <= 24; tick++) {
                 context.waitTicks(1);
                 int elapsedTick = tick;
@@ -369,6 +370,7 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                     var level = singleplayer.getConnection().getServerLevel();
                     SulfurCube cube = (SulfurCube) level.getEntity(waterCubeId);
                     if (cube == null) throw new AssertionError("Submerged Sulfur Cube disappeared");
+                    enteredWater[0] |= cube.isInWater();
                     return new MotionSample(cube.getBoundingBox().getCenter(), cube.getDeltaMovement(),
                             cube.onGround(), cube.getAttributeValue(
                                     net.minecraft.world.entity.ai.attributes.Attributes.GRAVITY),
@@ -382,9 +384,11 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 Vec3 expected = new Vec3(expectedPosition.x, expectedPosition.y, expectedPosition.z)
                         .add(serverOrigin.subtract(predictionOrigin));
                 double waterError = actual.center().distanceTo(expected);
+                maxWaterError = Math.max(maxWaterError, waterError);
                 waterTrace.append(tick).append(": predicted=").append(expected)
                         .append(" actual=").append(actual.center()).append(" velocity=")
-                        .append(actual.velocity()).append("; ");
+                        .append(actual.velocity()).append(" onGround=").append(actual.onGround())
+                        .append(" error=").append(waterError).append("; ");
                 if (waterError > 0.20) {
                     throw new AssertionError("Water Sulfur Cube path diverged at tick " + tick
                             + ": predicted=" + expected + ", actual=" + actual.center()
@@ -392,7 +396,9 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                             + "; trace=" + waterTrace);
                 }
             }
-            System.out.println("[Briefest Boxer GameTest] Adult Sulfur Cube submerged trajectory matched 24 real world ticks");
+            if (!enteredWater[0]) throw new AssertionError("Adult Sulfur Cube did not enter water during the measured path");
+            System.out.println("[Briefest Boxer GameTest] Adult Sulfur Cube dry-to-water trajectory matched 24 real world ticks; max error="
+                    + maxWaterError + " blocks");
 
             int vanillaCubeId = singleplayer.getServer().computeOnServer(server -> {
                 var level = singleplayer.getConnection().getServerLevel();

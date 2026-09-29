@@ -152,6 +152,16 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 return new AttackResult(cube.getDeltaMovement(), state);
             });
 
+            // A zero-velocity prediction could match a zero-velocity server hit
+            // and still pass the comparison below. Require a real forward hit
+            // impulse so the rest of this test actually validates a moving cube.
+            if (attack.velocity().length() < 0.25 || attack.velocity().z < 0.15) {
+                throw new AssertionError("Hitting the adult Sulfur Cube must launch it forward: velocity="
+                        + attack.velocity() + "; server=" + attack.state());
+            }
+            System.out.println("[Briefest Boxer GameTest] Adult Sulfur Cube hit impulse confirmed: "
+                    + attack.velocity() + " blocks/tick");
+
             double error = predictedLaunch.distanceTo(attack.velocity());
             if (error > 0.01) {
                 throw new AssertionError("Sulfur Cube launch mismatch: predicted " + predictedLaunch
@@ -202,7 +212,7 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                     });
                     Vec3 launchCenter = new Vec3(first.x, first.y, first.z);
                     double clientDisplacement = clientCube.center().distanceTo(launchCenter);
-                    if (!clientCube.alive() || clientCube.invisible() || clientDisplacement < 0.25) {
+                    if (!clientCube.alive() || clientCube.invisible() || clientDisplacement < 0.75) {
                         throw new AssertionError("Adult Sulfur Cube did not visibly advance on the client: "
                                 + "launch=" + launchCenter + ", server=" + actual.center()
                                 + ", client=" + clientCube + ", clientDisplacement=" + clientDisplacement);
@@ -256,7 +266,7 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
 
             MotionSample inFlight = actualPath.get(Math.min(4, actualPath.size() - 1));
             double visibleDisplacement = inFlight.center().distanceTo(new Vec3(first.x, first.y, first.z));
-            if (visibleDisplacement < 0.25) {
+            if (visibleDisplacement < 0.75) {
                 throw new AssertionError("Adult Sulfur Cube did not visibly move during the real world ticks: "
                         + "displacement=" + visibleDisplacement + ", trace=" + pathTrace);
             }

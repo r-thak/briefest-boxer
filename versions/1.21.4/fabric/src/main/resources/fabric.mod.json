@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "briefest_boxer",
+  "version": "${version}",
+  "name": "Briefest Boxer",
+  "description": "Highlights the reachable, visible surfaces of nearby entities.",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["dev.briefestboxer.fabric.BriefestBoxerClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.14",
+    "minecraft": "1.21.4",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}

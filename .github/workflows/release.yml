@@ -1,0 +1,80 @@
+name: Build and publish mod release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build all Minecraft and loader jars
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install required Java versions
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            17
+            21
+            25
+          cache: gradle
+          cache-dependency-path: |
+            **/*.gradle
+            **/*.gradle.kts
+            **/gradle.properties
+            **/gradle-wrapper.properties
+
+      - name: Resolve release version
+        id: release
+        shell: bash
+        run: |
+          version=0.1.0
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Expected a version tag such as v1.2.3; got '$GITHUB_REF_NAME'." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Clean-build every supported project and package jars
+        env:
+          BRIEFEST_BOXER_VERSION: ${{ steps.release.outputs.version }}
+          BRIEFEST_BOXER_JAVA8_HOME: ${{ env.JAVA_HOME_8_X64 }}
+          BRIEFEST_BOXER_JAVA17_HOME: ${{ env.JAVA_HOME_17_X64 }}
+          BRIEFEST_BOXER_JAVA21_HOME: ${{ env.JAVA_HOME_21_X64 }}
+          BRIEFEST_BOXER_JAVA25_HOME: ${{ env.JAVA_HOME_25_X64 }}
+          GRADLE_BIN: ${{ github.workspace }}/gradlew
+        run: ./scripts/build-releases.sh
+
+      - name: Save release bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: briefest-boxer-${{ steps.release.outputs.version }}
+          path: releases/${{ steps.release.outputs.version }}/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub release
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
+        with:
+          name: Briefest Boxer ${{ steps.release.outputs.version }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: releases/${{ steps.release.outputs.version }}/*

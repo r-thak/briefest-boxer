@@ -11,7 +11,7 @@ buildscript {
 apply plugin: 'net.minecraftforge.gradle.forge'
 apply plugin: 'java'
 
-version = '0.1.0'
+version = project.mod_version
 group = 'dev.briefestboxer'
 archivesBaseName = 'briefest-boxer-1.8.9-forge'
 

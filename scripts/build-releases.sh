@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-release_version="0.1.0"
+release_version="${BRIEFEST_BOXER_VERSION:-0.1.0}"
 release_dir="$root_dir/releases/$release_version"
 gradle_bin="${GRADLE_BIN:-gradle}"
 gradle_user_home_path="${BRIEFEST_BOXER_GRADLE_USER_HOME:-}"
@@ -12,6 +12,17 @@ discover_java_home() {
     local candidate=""
     if [[ -n "$configured" ]]; then
         printf '%s' "$configured"
+        return
+    fi
+    case "$version" in
+        8) candidate="${JAVA_HOME_8_X64:-${JAVA_HOME_8_AARCH64:-}}" ;;
+        17) candidate="${JAVA_HOME_17_X64:-${JAVA_HOME_17_AARCH64:-}}" ;;
+        21) candidate="${JAVA_HOME_21_X64:-${JAVA_HOME_21_AARCH64:-}}" ;;
+        25) candidate="${JAVA_HOME_25_X64:-${JAVA_HOME_25_AARCH64:-}}" ;;
+    esac
+    if [[ -n "$candidate" && -x "$candidate/bin/java" ]] \
+            && "$candidate/bin/java" -version 2>&1 | grep -Eq "version \\\"${version}(\\.|\\+)"; then
+        printf '%s' "$candidate"
         return
     fi
     if [[ -x /usr/libexec/java_home ]]; then
@@ -34,8 +45,8 @@ discover_java_home() {
 }
 java21_home_path="$(discover_java_home 21 "${BRIEFEST_BOXER_JAVA21_HOME:-}")"
 java17_home_path="$(discover_java_home 17 "${BRIEFEST_BOXER_JAVA17_HOME:-}")"
-java8_home_path="${BRIEFEST_BOXER_JAVA8_HOME:-}"
-java25_home_path="${BRIEFEST_BOXER_JAVA25_HOME:-${JAVA_HOME:-}}"
+java8_home_path="$(discover_java_home 8 "${BRIEFEST_BOXER_JAVA8_HOME:-}")"
+java25_home_path="${BRIEFEST_BOXER_JAVA25_HOME:-${JAVA_HOME_25_X64:-${JAVA_HOME_25_AARCH64:-${JAVA_HOME:-}}}}"
 gradle_args=(--no-daemon)
 if [[ -n "$gradle_user_home_path" ]]; then
     gradle_args+=(--gradle-user-home "$gradle_user_home_path")
@@ -64,9 +75,9 @@ for project_dir in "$root_dir"/versions/*/fabric "$root_dir"/versions/*/forge; d
         project_java_home="$java21_home_path"
     fi
     if [[ -n "$project_java_home" ]]; then
-        BRIEFEST_BOXER_JAVA8_HOME="$java8_home_path" BRIEFEST_BOXER_JAVA17_HOME="$java17_home_path" JAVA_HOME="$project_java_home" "$project_gradle_bin" "${project_gradle_args[@]}" -p "$project_dir" clean build --console=plain
+        BRIEFEST_BOXER_JAVA8_HOME="$java8_home_path" BRIEFEST_BOXER_JAVA17_HOME="$java17_home_path" JAVA_HOME="$project_java_home" "$project_gradle_bin" "${project_gradle_args[@]}" -p "$project_dir" -Pmod_version="$release_version" clean build --console=plain
     else
-        BRIEFEST_BOXER_JAVA8_HOME="$java8_home_path" BRIEFEST_BOXER_JAVA17_HOME="$java17_home_path" "$project_gradle_bin" "${project_gradle_args[@]}" -p "$project_dir" clean build --console=plain
+        BRIEFEST_BOXER_JAVA8_HOME="$java8_home_path" BRIEFEST_BOXER_JAVA17_HOME="$java17_home_path" "$project_gradle_bin" "${project_gradle_args[@]}" -p "$project_dir" -Pmod_version="$release_version" clean build --console=plain
     fi
 
     minecraft_version="${project_dir#"$root_dir"/versions/}"

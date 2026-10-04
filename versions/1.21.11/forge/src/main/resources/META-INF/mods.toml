@@ -1,0 +1,23 @@
+modLoader="javafml"
+loaderVersion="[61,)"
+license="All Rights Reserved"
+
+[[mods]]
+modId="briefest_boxer"
+version="${file.jarVersion}"
+displayName="Briefest Boxer"
+description='''Highlights the reachable, visible surfaces of nearby entities.'''
+
+[[dependencies.briefest_boxer]]
+modId="forge"
+mandatory=true
+versionRange="[61.0.0,)"
+ordering="NONE"
+side="CLIENT"
+
+[[dependencies.briefest_boxer]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.21.11,1.21.12)"
+ordering="NONE"
+side="CLIENT"

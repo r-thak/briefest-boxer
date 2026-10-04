@@ -1,0 +1,51 @@
+plugins {
+    id 'java'
+    id 'net.minecraftforge.gradle' version '[7.0.29,8.0)'
+}
+
+version = mod_version
+group = 'dev.briefestboxer'
+base { archivesName = "briefest-boxer-${minecraft_version}-forge" }
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+minecraft {
+    mappings channel: 'official', version: minecraft_version
+    runs {
+        configureEach { workingDir.convention layout.projectDirectory.dir('run') }
+        register('client')
+    }
+}
+
+repositories {
+    minecraft.mavenizer(it)
+    maven fg.forgeMaven
+    maven fg.minecraftLibsMaven
+    mavenCentral()
+}
+
+dependencies {
+    implementation minecraft.dependency("net.minecraftforge:forge:${minecraft_version}-${forge_version}")
+    if (project.hasProperty('optifineJar')) {
+        // Optional local-only compatibility test; the OptiFine jar is never bundled.
+        runtimeOnly files(project.property('optifineJar'))
+    }
+}
+
+// Forge 52's launcher requires the automatic module name jopt.simple from 5.0.4.
+// A transitive ModLauncher constraint otherwise selects 6.0-alpha-3 (module joptsimple).
+configurations.configureEach {
+    resolutionStrategy.force 'net.sf.jopt-simple:jopt-simple:5.0.4'
+}
+
+sourceSets.main.java.srcDir('../../../common/src/main/java')
+sourceSets.main.java.exclude('dev/briefestboxer/core/SulfurCubeHitModel.java')
+// ForgeGradle 6 treats the resource output as the mod file and does not merge it
+// with the class output. Keep both in one directory for its run configuration.
+sourceSets.main.output.resourcesDir = sourceSets.main.java.destinationDirectory.get().asFile
+tasks.named('processResources') { mustRunAfter tasks.named('compileJava') }
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}

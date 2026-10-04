@@ -52,6 +52,9 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Run shared geometry and configuration tests
+        run: ./gradlew --no-daemon test --console=plain
+
       - name: Clean-build every supported project and package jars
         env:
           BRIEFEST_BOXER_VERSION: ${{ steps.release.outputs.version }}

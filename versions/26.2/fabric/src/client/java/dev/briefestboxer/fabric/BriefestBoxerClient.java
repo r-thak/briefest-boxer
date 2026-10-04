@@ -150,46 +150,82 @@ public final class BriefestBoxerClient implements ClientModInitializer {
     /** Draws only the AABB surface that lies within interaction reach. */
     private static void drawReachableSurface(Minecraft client, Entity viewer, Vec3 camera,
             EntityHighlightSelector.Bounds box, double reach, int rgb) {
-        List<Vec3[]> visibleTriangles = new ArrayList<>();
+        List<Vec3[]> visibleQuads = new ArrayList<>();
         List<ReachableSurface.Triangle> mesh = ReachableSurface.mesh(box,
                 new dev.briefestboxer.core.Vec3(camera.x, camera.y, camera.z), reach);
-        for (ReachableSurface.Triangle triangle : mesh) {
-            Vec3 a = gameVec(triangle.a), b = gameVec(triangle.b), c = gameVec(triangle.c);
-            Vec3 ab = a.add(b).scale(0.5), bc = b.add(c).scale(0.5), ca = c.add(a).scale(0.5);
-            // Clip small pieces independently. Rejecting a whole surface triangle
-            // when even one corner ray hit foliage removed large visible patches.
-            addVisibleTriangle(client, viewer, camera, visibleTriangles, a, ab, ca);
-            addVisibleTriangle(client, viewer, camera, visibleTriangles, ab, b, bc);
-            addVisibleTriangle(client, viewer, camera, visibleTriangles, ca, bc, c);
-            addVisibleTriangle(client, viewer, camera, visibleTriangles, ab, bc, ca);
-        }
-        if (visibleTriangles.isEmpty()) return;
-        int color = 0xFF000000 | (rgb & 0xFFFFFF);
-        // Draw over entity geometry, but only submit triangles with a clear block ray.
-        GizmoStyle style = GizmoStyle.fill(color);
-        Gizmos.addGizmo((primitives, progress) -> {
-            int fill = style.multipliedFill(progress);
-            for (Vec3[] triangle : visibleTriangles) {
-                primitives.addTriangleFan(triangle, fill);
+        for (int i = 0; i + 1 < mesh.size();) {
+            ReachableSurface.Triangle first = mesh.get(i);
+            ReachableSurface.Triangle second = mesh.get(i + 1);
+            // ReachableSurface triangulates each convex face polygon as a fan.
+            // Pair consecutive fan triangles into a real four-corner quad; the
+            // 26.2 filled-gizmo renderer does not reliably rasterize triangles.
+            if (!samePoint(first.a, second.a)) {
+                i++;
+                continue;
             }
-        }).setAlwaysOnTop().persistForMillis(GIZMO_REFRESH_LIFETIME_MS);
+            if (samePoint(first.c, second.b)) {
+                // Max-side triangles already follow the outward polygon winding.
+                addVisibleQuad(client, viewer, camera, visibleQuads,
+                        gameVec(first.a), gameVec(first.b), gameVec(first.c), gameVec(second.c));
+            } else if (samePoint(first.b, second.c)) {
+                // Min-side mesh triangles reverse their winding so their normal
+                // points outward. Rebuild the perimeter in that reversed order.
+                addVisibleQuad(client, viewer, camera, visibleQuads,
+                        gameVec(first.a), gameVec(second.b), gameVec(first.b), gameVec(first.c));
+            } else {
+                i++;
+                continue;
+            }
+            i += 2;
+        }
+        if (visibleQuads.isEmpty()) return;
+        int color = 0xFF000000 | (rgb & 0xFFFFFF);
+        // Filled cuboid gizmos use the renderer's reliable filled-box pipeline.
+        // Represent each visible face patch as an almost zero-thickness slab so
+        // block culling stays per patch while the displayed cover remains smooth.
+        for (Vec3[] quad : visibleQuads) {
+            double minX = Math.min(Math.min(quad[0].x, quad[1].x), Math.min(quad[2].x, quad[3].x));
+            double minY = Math.min(Math.min(quad[0].y, quad[1].y), Math.min(quad[2].y, quad[3].y));
+            double minZ = Math.min(Math.min(quad[0].z, quad[1].z), Math.min(quad[2].z, quad[3].z));
+            double maxX = Math.max(Math.max(quad[0].x, quad[1].x), Math.max(quad[2].x, quad[3].x));
+            double maxY = Math.max(Math.max(quad[0].y, quad[1].y), Math.max(quad[2].y, quad[3].y));
+            double maxZ = Math.max(Math.max(quad[0].z, quad[1].z), Math.max(quad[2].z, quad[3].z));
+            if (maxX - minX < 1.0E-6) { minX -= 0.025; maxX += 0.025; }
+            if (maxY - minY < 1.0E-6) { minY -= 0.025; maxY += 0.025; }
+            if (maxZ - minZ < 1.0E-6) { minZ -= 0.025; maxZ += 0.025; }
+            Gizmos.cuboid(new AABB(minX, minY, minZ, maxX, maxY, maxZ), GizmoStyle.fill(color))
+                    .setAlwaysOnTop().persistForMillis(GIZMO_REFRESH_LIFETIME_MS);
+        }
     }
 
-    private static void addVisibleTriangle(Minecraft client, Entity viewer, Vec3 camera,
-            List<Vec3[]> visibleTriangles, Vec3 a, Vec3 b, Vec3 c) {
-        Vec3 sample = a.add(b).add(c).scale(1.0 / 3.0);
-        if (isPointVisible(client, viewer, camera, sample)) visibleTriangles.add(new Vec3[] {a, b, c});
+    private static void addVisibleQuad(Minecraft client, Entity viewer, Vec3 camera,
+            List<Vec3[]> visibleQuads, Vec3 a, Vec3 b, Vec3 c, Vec3 d) {
+        Vec3 ab = a.add(b).scale(0.5), bc = b.add(c).scale(0.5);
+        Vec3 cd = c.add(d).scale(0.5), da = d.add(a).scale(0.5);
+        Vec3 center = a.add(b).add(c).add(d).scale(0.25);
+        addVisibleSubQuad(client, viewer, camera, visibleQuads, a, ab, center, da);
+        addVisibleSubQuad(client, viewer, camera, visibleQuads, ab, b, bc, center);
+        addVisibleSubQuad(client, viewer, camera, visibleQuads, center, bc, c, cd);
+        addVisibleSubQuad(client, viewer, camera, visibleQuads, da, center, cd, d);
+    }
+
+    private static void addVisibleSubQuad(Minecraft client, Entity viewer, Vec3 camera,
+            List<Vec3[]> visibleQuads, Vec3 a, Vec3 b, Vec3 c, Vec3 d) {
+        Vec3 sample = a.add(b).add(c).add(d).scale(0.25);
+        if (isPointVisible(client, viewer, camera, sample)) visibleQuads.add(new Vec3[] {a, b, c, d});
+    }
+
+    private static boolean samePoint(dev.briefestboxer.core.Vec3 a, dev.briefestboxer.core.Vec3 b) {
+        return Math.abs(a.x - b.x) < 1.0E-7 && Math.abs(a.y - b.y) < 1.0E-7
+                && Math.abs(a.z - b.z) < 1.0E-7;
     }
 
     private static Vec3 gameVec(dev.briefestboxer.core.Vec3 p) { return new Vec3(p.x, p.y, p.z); }
 
-    private static boolean isPointVisible(Minecraft client, Entity viewer, Vec3 camera, Vec3 point) {
+    static boolean isPointVisible(Minecraft client, Entity viewer, Vec3 camera, Vec3 point) {
         double pointDistance = camera.distanceToSqr(point);
         if (pointDistance < 1.0E-8) return true;
-        HitResult obstruction = client.level.clip(new ClipContext(camera, point,
-                ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, viewer));
-        return obstruction.getType() != HitResult.Type.BLOCK
-                || camera.distanceToSqr(obstruction.getLocation()) >= pointDistance - 0.01;
+        return !hasOpaqueBlockBetween(client, viewer, camera, point, pointDistance);
     }
 
     private static AABB interpolatedBounds(Entity entity, float partialTick) {
@@ -223,12 +259,48 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         for (Vec3 sample : List.of(closest, center, upper, lower, sideA, sideB)) {
             double sampleDistance = camera.distanceToSqr(sample);
             if (sampleDistance < 1.0E-8) return true;
-            HitResult obstruction = client.level.clip(new ClipContext(camera, sample,
-                    ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, viewer));
-            if (obstruction.getType() != HitResult.Type.BLOCK
-                    || camera.distanceToSqr(obstruction.getLocation()) >= sampleDistance - 0.01) return true;
+            if (!hasOpaqueBlockBetween(client, viewer, camera, sample, sampleDistance)) return true;
         }
         return false;
+    }
+
+    /** Leaves can have collider shapes even though their sparse foliage should not hide a target. */
+    private static boolean hasOpaqueBlockBetween(Minecraft client, Entity viewer, Vec3 camera,
+            Vec3 point, double pointDistance) {
+        Vec3 ray = point.subtract(camera);
+        double rayLength = ray.length();
+        if (rayLength < 1.0E-4) return false;
+        Vec3 direction = ray.scale(1.0 / rayLength);
+        Vec3 start = camera;
+        // Skip leaf blocks one at a time, but keep ordinary solid blocks as occluders.
+        // This avoids treating the first leaf in a dense shrub canopy as a wall.
+        for (int skippedLeaves = 0; skippedLeaves < 64; skippedLeaves++) {
+            HitResult obstruction = client.level.clip(new ClipContext(start, point,
+                    ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, viewer));
+            if (obstruction.getType() != HitResult.Type.BLOCK
+                    || camera.distanceToSqr(obstruction.getLocation()) >= pointDistance - 0.01) return false;
+            if (!client.level.getBlockState(((net.minecraft.world.phys.BlockHitResult) obstruction).getBlockPos())
+                    .is(BlockTags.LEAVES)) return true;
+            var leafPos = ((net.minecraft.world.phys.BlockHitResult) obstruction).getBlockPos();
+            double passed = nextBlockExitDistance(camera, direction, leafPos);
+            if (passed >= rayLength) return false;
+            start = camera.add(direction.scale(passed));
+        }
+        // A long run of foliage should not hide a hittable part. The configured
+        // scan range caps this loop's ray length, and non-leaf solids still stop it.
+        return false;
+    }
+
+    private static double nextBlockExitDistance(Vec3 origin, Vec3 direction,
+            net.minecraft.core.BlockPos block) {
+        double distance = Double.POSITIVE_INFINITY;
+        if (direction.x > 1.0E-9) distance = Math.min(distance, (block.getX() + 1.0 - origin.x) / direction.x);
+        else if (direction.x < -1.0E-9) distance = Math.min(distance, (block.getX() - origin.x) / direction.x);
+        if (direction.y > 1.0E-9) distance = Math.min(distance, (block.getY() + 1.0 - origin.y) / direction.y);
+        else if (direction.y < -1.0E-9) distance = Math.min(distance, (block.getY() - origin.y) / direction.y);
+        if (direction.z > 1.0E-9) distance = Math.min(distance, (block.getZ() + 1.0 - origin.z) / direction.z);
+        else if (direction.z < -1.0E-9) distance = Math.min(distance, (block.getZ() - origin.z) / direction.z);
+        return Double.isFinite(distance) ? distance + 0.001 : 0.001;
     }
 
     private static void renderSulfurPrediction(Minecraft client, float partialTick) {

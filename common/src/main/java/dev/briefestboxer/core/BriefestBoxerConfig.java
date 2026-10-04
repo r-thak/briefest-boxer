@@ -23,7 +23,9 @@ public final class BriefestBoxerConfig {
     public static int aimTolerance = 4;
     public static int trajectorySteps = 4096;
     public static int selectedColor = 0;
-    public static int otherColor = 1;
+    // Default entity highlighting to red so it remains visible on the Sulfur
+    // Cube's cyan absorbed-material texture.
+    public static int otherColor = 0;
     public static int trajectoryColor = 2;
 
     private BriefestBoxerConfig() {}
@@ -43,7 +45,7 @@ public final class BriefestBoxerConfig {
                 // Previous defaults often cut off long, low-friction Sulfur Cube launches.
                 if (trajectorySteps == 48) trajectorySteps = 4096;
                 selectedColor = colorIndex(values, "selectedColor", 0);
-                otherColor = colorIndex(values, "otherColor", 1);
+                otherColor = colorIndex(values, "otherColor", 0);
                 trajectoryColor = colorIndex(values, "trajectoryColor", 2);
             } catch (IOException ignored) {
                 // Defaults remain active when a user config cannot be read.

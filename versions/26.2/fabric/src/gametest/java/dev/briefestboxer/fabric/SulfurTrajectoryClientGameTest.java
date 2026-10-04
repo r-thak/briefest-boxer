@@ -30,6 +30,40 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
             var connection = singleplayer.getConnection();
             connection.waitForChunksRender();
 
+            // Foliage has collision geometry in some blocks, but must not hide
+            // the visible target surface. Solid blocks must still occlude it.
+            BlockPos leafPos = new BlockPos(2, -56, 1);
+            BlockPos wallPos = new BlockPos(2, -56, 2);
+            singleplayer.getServer().computeOnServer(server -> {
+                var level = singleplayer.getConnection().getServerLevel();
+                level.setBlockAndUpdate(leafPos, Blocks.OAK_LEAVES.defaultBlockState());
+                level.setBlockAndUpdate(wallPos, Blocks.AIR.defaultBlockState());
+                return null;
+            });
+            context.waitTicks(1);
+            connection.waitForClientboundPackets();
+            boolean visibleThroughLeaves = context.computeOnClient(client ->
+                    BriefestBoxerClient.isPointVisible(client, client.player,
+                            new Vec3(2.5, -55.5, 0.5), new Vec3(2.5, -55.5, 3.5)));
+            if (!visibleThroughLeaves) throw new AssertionError("Tree leaves should not cull the target highlight");
+            singleplayer.getServer().computeOnServer(server -> {
+                singleplayer.getConnection().getServerLevel().setBlockAndUpdate(
+                        wallPos, Blocks.STONE.defaultBlockState());
+                return null;
+            });
+            context.waitTicks(1);
+            connection.waitForClientboundPackets();
+            boolean visibleThroughWall = context.computeOnClient(client ->
+                    BriefestBoxerClient.isPointVisible(client, client.player,
+                            new Vec3(2.5, -55.5, 0.5), new Vec3(2.5, -55.5, 3.5)));
+            if (visibleThroughWall) throw new AssertionError("Opaque blocks must continue to cull target highlights");
+            singleplayer.getServer().computeOnServer(server -> {
+                var level = singleplayer.getConnection().getServerLevel();
+                level.setBlockAndUpdate(leafPos, Blocks.AIR.defaultBlockState());
+                level.setBlockAndUpdate(wallPos, Blocks.AIR.defaultBlockState());
+                return null;
+            });
+
             context.computeOnClient(client -> {
                 SulfurCube cube = (SulfurCube) BuiltInRegistries.ENTITY_TYPE.getValue(
                         Identifier.withDefaultNamespace("sulfur_cube")).create(client.level, EntitySpawnReason.COMMAND);
@@ -74,7 +108,13 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 // frame. At the old two-block camera distance the red surface
                 // filled the screenshot, so the cube appeared stationary even
                 // though the server position assertions passed.
-                player.setPos(0.5, floorY, -2.5);
+                // Keep the adult cube inside the client's normal interaction
+                // reach too. The previous four-block camera-to-hitbox distance
+                // exceeded the client's vanilla reach (even though the server
+                // test raised its own reach attribute), so it exercised the
+                // trajectory guide without exercising the reachable-surface
+                // highlight on the rendered client.
+                player.setPos(0.5, floorY, 0.5);
                 player.setDeltaMovement(Vec3.ZERO);
                 player.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.ENTITY_INTERACTION_RANGE)
                         .setBaseValue(6.0);
@@ -103,7 +143,14 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 SulfurCube cube = findCube(client, cubeId);
                 // Match launch velocity on both sides before the simulated hit.
                 cube.setDeltaMovement(Vec3.ZERO);
+                // The GameTest teleports the server player during world setup.
+                // Resync the client camera entity before taking the visual
+                // snapshot so visibility rays originate from the actual player.
+                client.player.setPos(0.5, cube.getY(), 0.5);
+                client.player.setDeltaMovement(Vec3.ZERO);
+                client.gameRenderer.mainCamera().update(client.getDeltaTracker());
                 aimAt(client.player, cube);
+                client.gameRenderer.mainCamera().update(client.getDeltaTracker());
                 clientState[0] = describe(client.player, cube);
                 client.hitResult = new EntityHitResult(cube, cube.getBoundingBox().getCenter());
                 ItemStack bodyItem = cube.getItemBySlot(EquipmentSlot.BODY);

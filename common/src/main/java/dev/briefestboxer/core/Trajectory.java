@@ -31,7 +31,7 @@ public final class Trajectory {
         Vec3 beforeMovement(Vec3 position, Vec3 velocity, int tickIndex);
         /** Return null to use the ordinary acceleration/air-drag step. */
         Vec3 afterMovement(Vec3 from, Vec3 to, Vec3 collisionAdjustedVelocity,
-                           int tickIndex, boolean wasFalling);
+                           int tickIndex, boolean wasFalling, boolean wasOnGround);
     }
 
     public static final class Surface {
@@ -187,7 +187,7 @@ public final class Trajectory {
             Vec3 collisionAdjustedVelocity = new Vec3(nextX, nextY, nextZ);
             Vec3 sampledVelocity = stepPhysicsSampler == null ? null
                     : stepPhysicsSampler.afterMovement(previousPosition, currentPosition,
-                            collisionAdjustedVelocity, tick, movementVelocity.y <= 0.0);
+                            collisionAdjustedVelocity, tick, movementVelocity.y <= 0.0, onGround);
             currentVelocity = sampledVelocity == null
                     ? collisionAdjustedVelocity.add(acceleration) : sampledVelocity;
             double groundFriction = onGround && currentSurface != null

@@ -342,8 +342,8 @@ public final class ForgeClientAimGuide {
                     new Vec3(previous.x, previous.y, previous.z).add(renderOffset),
                     new Vec3(point.x, point.y, point.z).add(renderOffset)});
         }
-        int glow = (0x12 << 24) | (rgb & 0xFFFFFF);
-        int core = (0x60 << 24) | (rgb & 0xFFFFFF);
+        int glow = (0x02 << 24) | (rgb & 0xFFFFFF);
+        int core = (0x12 << 24) | (rgb & 0xFFFFFF);
         Gizmos.addGizmo((primitives, progress) -> {
             for (Vec3[] segment : segments) {
                 Vec3 from = segment[0], to = segment[1];
@@ -351,8 +351,8 @@ public final class ForgeClientAimGuide {
                 double distance = Math.max(0.1, camera.distanceTo(from.add(to).scale(0.5)));
                 // Keep the world-space ribbon narrower than the old preview. The
                 // perspective scaling still prevents it from disappearing at range.
-                double coreHalfWidth = distance * 0.00055;
-                double glowHalfWidth = distance * 0.0015;
+                double coreHalfWidth = distance * 0.00008;
+                double glowHalfWidth = distance * 0.00018;
                 Vec3 view = camera.subtract(from.add(to).scale(0.5));
                 Vec3 side = direction.cross(view);
                 if (side.lengthSqr() < 1.0E-8) side = fallbackSide;
@@ -371,18 +371,22 @@ public final class ForgeClientAimGuide {
             ItemStack bodyItem, List<SulfurCubeArchetype> archetypes, AABB startingBounds, Vec3 startingCenter) {
         boolean buoyant = !bodyItem.isEmpty() && archetypes.stream().anyMatch(SulfurCubeArchetype::buoyant);
         double gravity = effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.GRAVITY);
+        double waterWalker = effectiveCubeAttribute(cube, bodyItem, archetypes,
+                Attributes.WATER_MOVEMENT_EFFICIENCY);
         double fluidJumpThreshold = cube.getFluidJumpThreshold();
-        int startingTick = cube.tickCount;
+        // The client entity's tick counter is one tick behind the server when
+        // the hit is issued; travelInFluid evaluates Sulfur Cube bobbing after
+        // the entity tick counter advances.
+        int startingTick = cube.tickCount + 1;
         return new Trajectory.StepPhysicsSampler() {
             @Override
             public dev.briefestboxer.core.Vec3 beforeMovement(dev.briefestboxer.core.Vec3 position,
                     dev.briefestboxer.core.Vec3 velocity, int tickIndex) {
                 Vec3 worldPosition = new Vec3(position.x, position.y, position.z);
-                FluidSample fluid = sampleWater(client, startingBounds, startingCenter, worldPosition);
-                // The first displacement is the hit impulse itself. Entity.tick has
-                // already run for the hit frame, so don't apply next-tick fluid flow
-                // until subsequent predicted travel steps.
-                if (tickIndex == 0 || !fluid.inWater() || fluid.current.lengthSqr() < 1.0E-12) return null;
+                FluidSample fluid = sampleWater(client, cube, startingBounds, startingCenter, worldPosition);
+                // Entity.tick applies current before each travel step, including
+                // the first simulated displacement from an already-submerged start.
+                if (!fluid.inWater() || fluid.current.lengthSqr() < 1.0E-12) return null;
                 Vec3 current = fluid.current;
                 if (velocity.x * velocity.x + velocity.z * velocity.z < 9.0E-6
                         && current.horizontalDistance() < 0.0045) {
@@ -395,18 +399,21 @@ public final class ForgeClientAimGuide {
             @Override
             public dev.briefestboxer.core.Vec3 afterMovement(dev.briefestboxer.core.Vec3 from,
                     dev.briefestboxer.core.Vec3 to, dev.briefestboxer.core.Vec3 collisionVelocity,
-                    int tickIndex, boolean wasFalling) {
+                    int tickIndex, boolean wasFalling, boolean wasOnGround) {
                 // Minecraft consumes the fluid state sampled at the start of travel;
                 // the post-move position only refreshes the state for the next tick.
                 Vec3 worldFrom = new Vec3(from.x, from.y, from.z);
-                FluidSample fluid = sampleWater(client, startingBounds, startingCenter, worldFrom);
+                FluidSample fluid = sampleWater(client, cube, startingBounds, startingCenter, worldFrom);
                 if (!fluid.inWater()) return null;
 
+                double slowdown = cube.isSprinting() ? 0.9 : 0.8;
+                double walker = wasOnGround ? waterWalker : waterWalker * 0.5;
+                slowdown += (0.54600006 - slowdown) * walker;
                 Vec3 velocity = new Vec3(collisionVelocity.x, collisionVelocity.y, collisionVelocity.z)
-                        .multiply(0.8, 0.8, 0.8);
+                        .multiply(slowdown, 0.8, slowdown);
                 double vertical = velocity.y;
                 if (gravity != 0.0 && !cube.isSprinting()) {
-                    if (wasFalling && Math.abs(vertical - 0.005) > 0.003
+                    if (wasFalling && Math.abs(vertical - 0.005) >= 0.003
                             && Math.abs(vertical - gravity / 16.0) < 0.003) {
                         vertical = -0.003;
                     } else {
@@ -423,9 +430,10 @@ public final class ForgeClientAimGuide {
         };
     }
 
-    private static FluidSample sampleWater(Minecraft client, AABB startingBounds,
+    private static FluidSample sampleWater(Minecraft client, SulfurCube cube, AABB startingBounds,
             Vec3 startingCenter, Vec3 predictedCenter) {
-        AABB box = startingBounds.move(predictedCenter.subtract(startingCenter));
+        AABB entityBounds = startingBounds.move(predictedCenter.subtract(startingCenter));
+        AABB box = entityBounds.deflate(0.001);
         int minX = net.minecraft.util.Mth.floor(box.minX);
         int minY = net.minecraft.util.Mth.floor(box.minY);
         int minZ = net.minecraft.util.Mth.floor(box.minZ);
@@ -447,8 +455,8 @@ public final class ForgeClientAimGuide {
                     // accumulates this block's current. Partial-depth scaling is
                     // therefore based on the depth reached at this point in the
                     // same X/Y/Z scan, rather than the final depth of the entity.
-                    fluidHeight = Math.max(fluidHeight, top - box.minY);
-                    Vec3 flow = fluid.getFlow(client.level, pos);
+                    fluidHeight = Math.max(fluidHeight, top - entityBounds.minY);
+                    Vec3 flow = fluid.getFlow(client.level, pos, cube);
                     if (fluidHeight < 0.4) flow = flow.scale(fluidHeight);
                     current = current.add(flow);
                 }

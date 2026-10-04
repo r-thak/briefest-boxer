@@ -290,9 +290,9 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 }
                 for (int x = -3; x <= 3; x++) {
                     level.setBlockAndUpdate(new BlockPos(x, -58, 29), Blocks.STONE.defaultBlockState());
-                    // Keep a short, one-way stream so the prediction exercises
-                    // both water entry and the current carried by flowing water.
-                    for (int z = 30; z <= 33; z++) {
+                    // Keep a long, one-way stream so the prediction exercises
+                    // water entry, sustained current, buoyancy, and fluid drag.
+                    for (int z = 30; z <= 50; z++) {
                         level.setBlockAndUpdate(new BlockPos(x, -58, z), Blocks.WATER.defaultBlockState());
                     }
                 }
@@ -365,7 +365,7 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
             StringBuilder waterTrace = new StringBuilder();
             boolean[] enteredWater = {false};
             double maxWaterError = 0.0;
-            for (int tick = 1; tick <= 24; tick++) {
+            for (int tick = 1; tick <= 48; tick++) {
                 context.waitTicks(1);
                 int elapsedTick = tick;
                 MotionSample actual = singleplayer.getServer().computeOnServer(server -> {
@@ -399,7 +399,7 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 }
             }
             if (!enteredWater[0]) throw new AssertionError("Adult Sulfur Cube did not enter water during the measured path");
-            System.out.println("[Briefest Boxer GameTest] Adult Sulfur Cube dry-to-water trajectory matched 24 real world ticks; max error="
+            System.out.println("[Briefest Boxer GameTest] Adult Sulfur Cube dry-to-water trajectory matched 48 real world ticks; max error="
                     + maxWaterError + " blocks");
 
             int vanillaCubeId = singleplayer.getServer().computeOnServer(server -> {

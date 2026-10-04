@@ -155,14 +155,13 @@ public final class BriefestBoxerClient implements ClientModInitializer {
                 new dev.briefestboxer.core.Vec3(camera.x, camera.y, camera.z), reach);
         for (ReachableSurface.Triangle triangle : mesh) {
             Vec3 a = gameVec(triangle.a), b = gameVec(triangle.b), c = gameVec(triangle.c);
-            Vec3 sample = a.add(b).add(c).scale(1.0 / 3.0);
-            // Requiring all three vertices keeps the full triangle behind blocks
-            // clipped instead of letting its visible center expose hidden edges.
-            if (!isPointVisible(client, viewer, camera, sample)
-                    || !isPointVisible(client, viewer, camera, a)
-                    || !isPointVisible(client, viewer, camera, b)
-                    || !isPointVisible(client, viewer, camera, c)) continue;
-            visibleTriangles.add(new Vec3[] {a, b, c});
+            Vec3 ab = a.add(b).scale(0.5), bc = b.add(c).scale(0.5), ca = c.add(a).scale(0.5);
+            // Clip small pieces independently. Rejecting a whole surface triangle
+            // when even one corner ray hit foliage removed large visible patches.
+            addVisibleTriangle(client, viewer, camera, visibleTriangles, a, ab, ca);
+            addVisibleTriangle(client, viewer, camera, visibleTriangles, ab, b, bc);
+            addVisibleTriangle(client, viewer, camera, visibleTriangles, ca, bc, c);
+            addVisibleTriangle(client, viewer, camera, visibleTriangles, ab, bc, ca);
         }
         if (visibleTriangles.isEmpty()) return;
         int color = 0xFF000000 | (rgb & 0xFFFFFF);
@@ -174,6 +173,12 @@ public final class BriefestBoxerClient implements ClientModInitializer {
                 primitives.addTriangleFan(triangle, fill);
             }
         }).setAlwaysOnTop().persistForMillis(GIZMO_REFRESH_LIFETIME_MS);
+    }
+
+    private static void addVisibleTriangle(Minecraft client, Entity viewer, Vec3 camera,
+            List<Vec3[]> visibleTriangles, Vec3 a, Vec3 b, Vec3 c) {
+        Vec3 sample = a.add(b).add(c).scale(1.0 / 3.0);
+        if (isPointVisible(client, viewer, camera, sample)) visibleTriangles.add(new Vec3[] {a, b, c});
     }
 
     private static Vec3 gameVec(dev.briefestboxer.core.Vec3 p) { return new Vec3(p.x, p.y, p.z); }
@@ -290,17 +295,20 @@ public final class BriefestBoxerClient implements ClientModInitializer {
             Vec3 to = new Vec3(point.x, point.y, point.z).add(renderOffset);
             segments.add(new Vec3[] {from, to});
         }
-        int glow = (0x12 << 24) | (rgb & 0xFFFFFF);
-        int core = (0x60 << 24) | (rgb & 0xFFFFFF);
+        int glow = (0x08 << 24) | (rgb & 0xFFFFFF);
+        int core = (0x38 << 24) | (rgb & 0xFFFFFF);
+        int viewportHeight = Math.max(1, client.getWindow().getHeight());
+        // Scale the world-space width with depth so the ribbon stays about
+        // one pixel wide at every distance. The previous distance * 0.00008
+        // half-width projected to less than a tenth of a pixel at 720p.
+        double halfWidthPerPixel = Math.tan(Math.toRadians(70.0 * 0.5)) / viewportHeight;
         Gizmos.addGizmo((primitives, progress) -> {
             for (Vec3[] segment : segments) {
                 Vec3 from = segment[0], to = segment[1];
                 Vec3 direction = to.subtract(from);
                 double distance = Math.max(0.1, camera.distanceTo(from.add(to).scale(0.5)));
-                // Keep the world-space ribbon narrower than the old preview. The
-                // perspective scaling still prevents it from disappearing at range.
-                double coreHalfWidth = distance * 0.00055;
-                double glowHalfWidth = distance * 0.0015;
+                double coreHalfWidth = distance * halfWidthPerPixel * 0.7;
+                double glowHalfWidth = distance * halfWidthPerPixel * 1.6;
                 Vec3 view = camera.subtract(from.add(to).scale(0.5));
                 Vec3 side = direction.cross(view);
                 if (side.lengthSqr() < 1.0E-8) side = fallbackSide;
@@ -383,18 +391,23 @@ public final class BriefestBoxerClient implements ClientModInitializer {
             ItemStack bodyItem, List<SulfurCubeArchetype> archetypes, AABB startingBounds, Vec3 startingCenter) {
         boolean buoyant = !bodyItem.isEmpty() && archetypes.stream().anyMatch(SulfurCubeArchetype::buoyant);
         double gravity = effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.GRAVITY);
+        double waterWalker = effectiveCubeAttribute(cube, bodyItem, archetypes,
+                Attributes.WATER_MOVEMENT_EFFICIENCY);
         double fluidJumpThreshold = cube.getFluidJumpThreshold();
-        int startingTick = cube.tickCount;
+        // The client entity's tick counter is one tick behind the server when
+        // the hit is issued; travelInFluid evaluates Sulfur Cube bobbing after
+        // the entity tick counter advances.
+        int startingTick = cube.tickCount + 1;
         return new Trajectory.StepPhysicsSampler() {
             @Override
             public dev.briefestboxer.core.Vec3 beforeMovement(dev.briefestboxer.core.Vec3 position,
                     dev.briefestboxer.core.Vec3 velocity, int tickIndex) {
                 Vec3 worldPosition = new Vec3(position.x, position.y, position.z);
-                FluidSample fluid = sampleWater(client, startingBounds, startingCenter, worldPosition);
-                // The first displacement is the hit impulse itself. Entity.tick has
-                // already run for the hit frame, so don't apply next-tick fluid flow
-                // until subsequent predicted travel steps.
-                if (tickIndex == 0 || !fluid.inWater() || fluid.current.lengthSqr() < 1.0E-12) return null;
+                FluidSample fluid = sampleWater(client, cube, startingBounds, startingCenter, worldPosition);
+                // Every predicted displacement corresponds to the next entity tick;
+                // updateFluidInteraction applies current before travel, including
+                // the first step when the cube was already submerged at launch.
+                if (!fluid.inWater() || fluid.current.lengthSqr() < 1.0E-12) return null;
                 Vec3 current = fluid.current;
                 if (velocity.x * velocity.x + velocity.z * velocity.z < 9.0E-6
                         && current.horizontalDistance() < 0.0045) {
@@ -407,18 +420,21 @@ public final class BriefestBoxerClient implements ClientModInitializer {
             @Override
             public dev.briefestboxer.core.Vec3 afterMovement(dev.briefestboxer.core.Vec3 from,
                     dev.briefestboxer.core.Vec3 to, dev.briefestboxer.core.Vec3 collisionVelocity,
-                    int tickIndex, boolean wasFalling) {
+                    int tickIndex, boolean wasFalling, boolean wasOnGround) {
                 // Minecraft consumes the fluid state sampled at the start of travel;
                 // the post-move position only refreshes the state for the next tick.
                 Vec3 worldFrom = new Vec3(from.x, from.y, from.z);
-                FluidSample fluid = sampleWater(client, startingBounds, startingCenter, worldFrom);
+                FluidSample fluid = sampleWater(client, cube, startingBounds, startingCenter, worldFrom);
                 if (!fluid.inWater()) return null;
 
+                double slowdown = cube.isSprinting() ? 0.9 : 0.8;
+                double walker = wasOnGround ? waterWalker : waterWalker * 0.5;
+                slowdown += (0.54600006 - slowdown) * walker;
                 Vec3 velocity = new Vec3(collisionVelocity.x, collisionVelocity.y, collisionVelocity.z)
-                        .multiply(0.8, 0.8, 0.8);
+                        .multiply(slowdown, 0.8, slowdown);
                 double vertical = velocity.y;
                 if (gravity != 0.0 && !cube.isSprinting()) {
-                    if (wasFalling && Math.abs(vertical - 0.005) > 0.003
+                    if (wasFalling && Math.abs(vertical - 0.005) >= 0.003
                             && Math.abs(vertical - gravity / 16.0) < 0.003) {
                         vertical = -0.003;
                     } else {
@@ -435,9 +451,10 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         };
     }
 
-    private static FluidSample sampleWater(Minecraft client, AABB startingBounds,
+    private static FluidSample sampleWater(Minecraft client, SulfurCube cube, AABB startingBounds,
             Vec3 startingCenter, Vec3 predictedCenter) {
-        AABB box = startingBounds.move(predictedCenter.subtract(startingCenter));
+        AABB entityBounds = startingBounds.move(predictedCenter.subtract(startingCenter));
+        AABB box = entityBounds.deflate(0.001);
         int minX = net.minecraft.util.Mth.floor(box.minX);
         int minY = net.minecraft.util.Mth.floor(box.minY);
         int minZ = net.minecraft.util.Mth.floor(box.minZ);
@@ -459,7 +476,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
                     // accumulates this block's current. Partial-depth scaling is
                     // therefore based on the depth reached at this point in the
                     // same X/Y/Z scan, rather than the final depth of the entity.
-                    fluidHeight = Math.max(fluidHeight, top - box.minY);
+                    fluidHeight = Math.max(fluidHeight, top - entityBounds.minY);
                     Vec3 flow = fluid.getFlow(client.level, pos);
                     if (fluidHeight < 0.4) flow = flow.scale(fluidHeight);
                     current = current.add(flow);

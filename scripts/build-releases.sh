@@ -10,8 +10,22 @@ discover_java_home() {
     local version="$1"
     local configured="${2:-}"
     local candidate=""
+    local actual_version=""
+    java_home_matches_version() {
+        local home="$1"
+        local expected_version="$2"
+        [[ -x "$home/bin/java" ]] || return 1
+        actual_version="$("$home/bin/java" -version 2>&1 | sed -nE 's/.*version "([^"]+)".*/\1/p' | head -n 1)"
+        if [[ "$expected_version" == 8 ]]; then
+            [[ "$actual_version" == 1.8.* || "$actual_version" == 8.* ]]
+        else
+            [[ "$actual_version" == "$expected_version".* || "$actual_version" == "$expected_version"+* ]]
+        fi
+    }
     if [[ -n "$configured" ]]; then
-        printf '%s' "$configured"
+        if java_home_matches_version "$configured" "$version"; then
+            printf '%s' "$configured"
+        fi
         return
     fi
     case "$version" in
@@ -20,15 +34,13 @@ discover_java_home() {
         21) candidate="${JAVA_HOME_21_X64:-${JAVA_HOME_21_AARCH64:-}}" ;;
         25) candidate="${JAVA_HOME_25_X64:-${JAVA_HOME_25_AARCH64:-}}" ;;
     esac
-    if [[ -n "$candidate" && -x "$candidate/bin/java" ]] \
-            && "$candidate/bin/java" -version 2>&1 | grep -Eq "version \\\"${version}(\\.|\\+)"; then
+    if [[ -n "$candidate" ]] && java_home_matches_version "$candidate" "$version"; then
         printf '%s' "$candidate"
         return
     fi
     if [[ -x /usr/libexec/java_home ]]; then
         candidate="$(/usr/libexec/java_home -v "$version" 2>/dev/null || true)"
-        if [[ -x "$candidate/bin/java" ]] \
-                && "$candidate/bin/java" -version 2>&1 | grep -Eq "version \\\"${version}(\\.|\\+)"; then
+        if java_home_matches_version "$candidate" "$version"; then
             printf '%s' "$candidate"
             return
         fi
@@ -36,8 +48,7 @@ discover_java_home() {
     for candidate in \
             "/opt/homebrew/opt/openjdk@$version/libexec/openjdk.jdk/Contents/Home" \
             "/usr/local/opt/openjdk@$version/libexec/openjdk.jdk/Contents/Home"; do
-        if [[ -x "$candidate/bin/java" ]] \
-                && "$candidate/bin/java" -version 2>&1 | grep -Eq "version \\\"${version}(\\.|\\+)"; then
+        if java_home_matches_version "$candidate" "$version"; then
             printf '%s' "$candidate"
             return
         fi
@@ -46,7 +57,16 @@ discover_java_home() {
 java21_home_path="$(discover_java_home 21 "${BRIEFEST_BOXER_JAVA21_HOME:-}")"
 java17_home_path="$(discover_java_home 17 "${BRIEFEST_BOXER_JAVA17_HOME:-}")"
 java8_home_path="$(discover_java_home 8 "${BRIEFEST_BOXER_JAVA8_HOME:-}")"
-java25_home_path="${BRIEFEST_BOXER_JAVA25_HOME:-${JAVA_HOME_25_X64:-${JAVA_HOME_25_AARCH64:-${JAVA_HOME:-}}}}"
+java25_home_path="$(discover_java_home 25 "${BRIEFEST_BOXER_JAVA25_HOME:-}")"
+for required_runtime in "8:$java8_home_path" "17:$java17_home_path" "21:$java21_home_path" "25:$java25_home_path"; do
+    runtime_version="${required_runtime%%:*}"
+    runtime_home="${required_runtime#*:}"
+    if [[ -z "$runtime_home" ]]; then
+        printf 'Java %s is required to build the supported release matrix. Set BRIEFEST_BOXER_JAVA%s_HOME.\n' \
+            "$runtime_version" "$runtime_version" >&2
+        exit 1
+    fi
+done
 gradle_args=(--no-daemon)
 if [[ -n "$gradle_user_home_path" ]]; then
     gradle_args+=(--gradle-user-home "$gradle_user_home_path")

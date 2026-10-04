@@ -5,14 +5,14 @@ import dev.briefestboxer.core.EntityHighlightSelector;
 import dev.briefestboxer.core.ReachableSurface;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.Tessellator;
-import net.minecraft.client.renderer.WorldRenderer;
+import net.minecraft.client.renderer.VertexBuffer;
 import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.util.AxisAlignedBB;
-import net.minecraft.util.MovingObjectPosition;
-import net.minecraft.util.Vec3;
+import net.minecraft.util.math.AxisAlignedBB;
+import net.minecraft.util.math.RayTraceResult;
+import net.minecraft.util.math.Vec3d;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.relauncher.Side;
@@ -47,7 +47,7 @@ public final class ForgeClientAimGuide {
             if (target == client.thePlayer || target.isDead || target.isInvisible()
                     || (!(target instanceof EntityPlayer) && !BriefestBoxerConfig.showEntities)
                     || (target instanceof EntityPlayer && !BriefestBoxerConfig.showAimPoints)) continue;
-            AxisAlignedBB box = interpolatedHittableBounds(target, event.partialTicks);
+            AxisAlignedBB box = interpolatedHittableBounds(target, event.getPartialTicks());
             EntityHighlightSelector.Bounds geometry = bounds(box);
             double distance = EntityHighlightSelector.distanceSquared(vector(camera), geometry);
             if (distance > BriefestBoxerConfig.aimRange() * BriefestBoxerConfig.aimRange()
@@ -68,7 +68,7 @@ public final class ForgeClientAimGuide {
         int rgb = nearest instanceof EntityPlayer
                 ? BriefestBoxerConfig.selectedColor() : BriefestBoxerConfig.otherColor();
         Tessellator tessellator = Tessellator.getInstance();
-        WorldRenderer renderer = tessellator.getWorldRenderer();
+        VertexBuffer renderer = tessellator.getBuffer();
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT
                 | GL11.GL_TEXTURE_BIT | GL11.GL_CURRENT_BIT | GL11.GL_POLYGON_BIT);
         GL11.glEnable(GL11.GL_BLEND);
@@ -81,8 +81,8 @@ public final class ForgeClientAimGuide {
                 (rgb & 255) / 255.0F, 0.78F);
         renderer.begin(GL11.GL_TRIANGLES, DefaultVertexFormats.POSITION_COLOR);
         for (ReachableSurface.Triangle triangle : mesh) {
-            Vec3 a = gameVec(triangle.a), b = gameVec(triangle.b), c = gameVec(triangle.c);
-            Vec3 sample = new Vec3((a.xCoord + b.xCoord + c.xCoord) / 3.0,
+            Vec3d a = gameVec(triangle.a), b = gameVec(triangle.b), c = gameVec(triangle.c);
+            Vec3d sample = new Vec3d((a.xCoord + b.xCoord + c.xCoord) / 3.0,
                     (a.yCoord + b.yCoord + c.yCoord) / 3.0, (a.zCoord + b.zCoord + c.zCoord) / 3.0);
             if (!visible(client, cameraX, cameraY, cameraZ, sample)) continue;
             vertex(renderer, a, cameraX, cameraY, cameraZ, rgb);
@@ -93,7 +93,7 @@ public final class ForgeClientAimGuide {
         GL11.glPopAttrib();
     }
 
-    private static void vertex(WorldRenderer renderer, Vec3 point, double cameraX, double cameraY,
+    private static void vertex(VertexBuffer renderer, Vec3d point, double cameraX, double cameraY,
             double cameraZ, int rgb) {
         renderer.pos(point.xCoord - cameraX, point.yCoord - cameraY, point.zCoord - cameraZ)
                 .color((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255, 200).endVertex();
@@ -112,15 +112,15 @@ public final class ForgeClientAimGuide {
         double centerX = (box.minX + box.maxX) * 0.5;
         double centerY = (box.minY + box.maxY) * 0.5;
         double centerZ = (box.minZ + box.maxZ) * 0.5;
-        return visible(client, x, y, z, new Vec3(centerX, centerY, centerZ))
-                || visible(client, x, y, z, new Vec3(centerX, box.maxY - 0.02, centerZ))
-                || visible(client, x, y, z, new Vec3(box.minX, centerY, centerZ))
-                || visible(client, x, y, z, new Vec3(box.maxX, centerY, centerZ));
+        return visible(client, x, y, z, new Vec3d(centerX, centerY, centerZ))
+                || visible(client, x, y, z, new Vec3d(centerX, box.maxY - 0.02, centerZ))
+                || visible(client, x, y, z, new Vec3d(box.minX, centerY, centerZ))
+                || visible(client, x, y, z, new Vec3d(box.maxX, centerY, centerZ));
     }
 
-    private static boolean visible(Minecraft client, double x, double y, double z, Vec3 point) {
-        Vec3 camera = new Vec3(x, y, z);
-        MovingObjectPosition hit = client.theWorld.rayTraceBlocks(camera, point, false, true, false);
+    private static boolean visible(Minecraft client, double x, double y, double z, Vec3d point) {
+        Vec3d camera = new Vec3d(x, y, z);
+        RayTraceResult hit = client.theWorld.rayTraceBlocks(camera, point, false, true, false);
         return hit == null || hit.hitVec == null
                 || hit.hitVec.squareDistanceTo(camera) >= point.squareDistanceTo(camera) - 0.01;
     }
@@ -133,7 +133,7 @@ public final class ForgeClientAimGuide {
         return new dev.briefestboxer.core.Vec3(box.minX, box.minY, box.minZ);
     }
 
-    private static Vec3 gameVec(dev.briefestboxer.core.Vec3 point) {
-        return new Vec3(point.x, point.y, point.z);
+    private static Vec3d gameVec(dev.briefestboxer.core.Vec3 point) {
+        return new Vec3d(point.x, point.y, point.z);
     }
 }

@@ -1,0 +1,10 @@
+[
+  {
+    "modid": "briefest_boxer",
+    "name": "Briefest Boxer",
+    "description": "Highlights the reachable, visible surfaces of nearby entities.",
+    "version": "${version}",
+    "mcversion": "1.9.4",
+    "clientSideOnly": true
+  }
+]

@@ -85,7 +85,7 @@ for project_dir in "$root_dir"/versions/*/fabric "$root_dir"/versions/*/forge; d
     project_gradle_args=("${gradle_args[@]}")
     if [[ "$project_dir" == */26.2/* ]]; then
         project_java_home="$java25_home_path"
-    elif [[ "$project_dir" == */1.8.9/forge ]]; then
+    elif [[ "$project_dir" == */1.8.9/forge || "$project_dir" == */1.9.4/forge ]]; then
         project_java_home="$java8_home_path"
         project_gradle_args+=("-Dorg.gradle.jvmargs=-Xmx4G -XX:-UseGCOverheadLimit")
     elif [[ "$project_dir" == */1.7.10/forge || "$project_dir" == */1.12.2/forge \

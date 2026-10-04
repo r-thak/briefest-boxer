@@ -12,7 +12,12 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 minecraft {
     mappings channel: 'official', version: minecraft_version
     runs {
-        configureEach { workingDir.convention layout.projectDirectory.dir('run') }
+        configureEach {
+            workingDir.convention layout.projectDirectory.dir('run')
+            if (System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('mac')) {
+                jvmArgs '-XstartOnFirstThread'
+            }
+        }
         register('client')
     }
 }

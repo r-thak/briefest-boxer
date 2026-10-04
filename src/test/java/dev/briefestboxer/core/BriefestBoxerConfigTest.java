@@ -22,7 +22,7 @@ class BriefestBoxerConfigTest {
 
         BriefestBoxerConfig.load(gameDirectory);
 
-        assertEquals(256, BriefestBoxerConfig.trajectorySteps);
+        assertEquals(4096, BriefestBoxerConfig.trajectorySteps);
     }
 
     @Test

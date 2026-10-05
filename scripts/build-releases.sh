@@ -76,6 +76,14 @@ trap 'rm -rf "$stage_dir"' EXIT HUP INT TERM
 
 for project_dir in "$root_dir"/versions/*/fabric "$root_dir"/versions/*/forge; do
     [[ -d "$project_dir" ]] || continue
+    minecraft_version="${project_dir#"$root_dir"/versions/}"
+    minecraft_version="${minecraft_version%%/*}"
+    case "$minecraft_version" in
+        1.21.8|1.21.10|1.20.2|1.20.4|1.20.6|1.21.3|1.21.4|1.21.5)
+            printf 'Skipping removed Minecraft target %s\n' "$minecraft_version"
+            continue
+            ;;
+    esac
     printf '\nBuilding %s\n' "${project_dir#"$root_dir"/}"
     project_gradle_bin="$gradle_bin"
     if [[ -x "$project_dir/gradlew" ]]; then
@@ -100,8 +108,6 @@ for project_dir in "$root_dir"/versions/*/fabric "$root_dir"/versions/*/forge; d
         BRIEFEST_BOXER_JAVA8_HOME="$java8_home_path" BRIEFEST_BOXER_JAVA17_HOME="$java17_home_path" "$project_gradle_bin" "${project_gradle_args[@]}" -p "$project_dir" -Pmod_version="$release_version" clean build --console=plain
     fi
 
-    minecraft_version="${project_dir#"$root_dir"/versions/}"
-    minecraft_version="${minecraft_version%%/*}"
     loader="${project_dir##*/}"
     jar_file="$(find "$project_dir/build/libs" -maxdepth 1 -type f -name "briefest-boxer-${minecraft_version}-${loader}-*.jar" ! -name '*-sources.jar' ! -name '*-dev.jar' -print -quit)"
     if [[ -z "$jar_file" ]]; then

@@ -34,3 +34,9 @@ processResources {
 jar {
     manifest { attributes 'FMLCorePluginContainsFMLMod': 'true' }
 }
+
+reobf {
+    jar {
+        mappingType = 'SEARGE'
+    }
+}

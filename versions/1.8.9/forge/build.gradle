@@ -34,3 +34,13 @@ processResources {
 jar {
     manifest { attributes 'FMLCorePluginContainsFMLMod': 'true' }
 }
+
+// ForgeGradle 2.1 only creates the production remap task for archives declared
+// in the reobf extension. Without it, named development symbols such as
+// Minecraft.getMinecraft() ship unchanged and crash against the obfuscated
+// client.
+reobf {
+    jar {
+        mappingType = 'SEARGE'
+    }
+}

@@ -28,11 +28,11 @@ class SulfurCubeHitModelTest {
     }
 
     @Test
-    void heldItemKnockbackAddsSeparateImpulseBeforeHorizontalDamping() {
+    void heldItemKnockbackAddsImpulseWithoutDampingTarget() {
         Vec3 withBonus = hitWithDamageAndKnockback(4.0, 2.0);
-        // sqrt(damage) * strength * 0.25 supplies the bonus, then Player.attack
-        // damps X/Z by 0.6.
-        assertEquals(0.297, withBonus.z, 1.0e-6);
+        // sqrt(damage) * strength * 0.25 supplies the bonus;
+        // the target keeps its full impulse.
+        assertEquals(0.495, withBonus.z, 1.0e-6);
     }
 
     @Test
@@ -41,7 +41,7 @@ class SulfurCubeHitModelTest {
 
         // The cube applies sqrt(damage) * knockbackStrength * 0.25 separately
         // from the ordinary damage impulse.
-        assertEquals(0.396, velocity.z, 1.0e-6);
+        assertEquals(0.66, velocity.z, 1.0e-6);
     }
 
     @Test

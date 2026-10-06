@@ -12,6 +12,12 @@ public final class Trajectory {
         this.positions = Collections.unmodifiableList(positions);
     }
 
+    /** Copies samples produced by a version's native movement implementation. */
+    public static Trajectory fromPositions(List<Vec3> positions) {
+        if (positions == null || positions.isEmpty()) throw new IllegalArgumentException("positions are required");
+        return new Trajectory(new ArrayList<Vec3>(positions));
+    }
+
     public List<Vec3> getPositions() {
         return positions;
     }

@@ -49,13 +49,14 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         Target nearest = null;
         for (Entity entity : context.world().getEntities()) {
             Entity target = entity;
-            if (target == client.player || !target.isAlive() || target.isSpectator() || target.isInvisible()) continue;
+            if (!(target instanceof net.minecraft.entity.LivingEntity) || target == client.player || !target.isAlive() || target.isSpectator() || target.isInvisible()) continue;
             if (target instanceof AbstractClientPlayerEntity && !BriefestBoxerConfig.showAimPoints) continue;
             if (!(target instanceof AbstractClientPlayerEntity) && !BriefestBoxerConfig.showEntities) continue;
             Box box = hittableBounds(target, context.tickDelta());
             Vec3d closest = closest(camera, box);
             double d2 = camera.squaredDistanceTo(closest);
-            if (d2 > maxDistance * maxDistance || !visible(context, client.player, camera, closest)) continue;
+            if (d2 > Math.min(maxDistance * maxDistance, reach * reach)
+                    || (nearest != null && d2 >= nearest.distanceSquared) || !visible(context, client.player, camera, closest)) continue;
             if (nearest == null || d2 < nearest.distanceSquared) nearest = new Target(target, box, d2);
         }
 
@@ -124,9 +125,9 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         double backstep = 1.0 - tickDelta;
         double margin = entity.getTargetingMargin();
         return entity.getBoundingBox().expand(margin).offset(
-                (entity.prevX - entity.getX()) * backstep,
-                (entity.prevY - entity.getY()) * backstep,
-                (entity.prevZ - entity.getZ()) * backstep);
+                (entity.lastRenderX - entity.getX()) * backstep,
+                (entity.lastRenderY - entity.getY()) * backstep,
+                (entity.lastRenderZ - entity.getZ()) * backstep);
     }
     private static EntityHighlightSelector.Bounds bounds(Box b) {
         return new EntityHighlightSelector.Bounds(b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ);

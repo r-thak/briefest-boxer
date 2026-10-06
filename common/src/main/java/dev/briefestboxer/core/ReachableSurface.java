@@ -9,6 +9,16 @@ public final class ReachableSurface {
     // High tessellation keeps the edge of the spherical reach boundary smooth at
     // normal entity render distances and prevents the segmented/pixelated look.
     private static final int CIRCLE_SEGMENTS = 256;
+    private static final double[] CIRCLE_U = new double[CIRCLE_SEGMENTS];
+    private static final double[] CIRCLE_V = new double[CIRCLE_SEGMENTS];
+
+    static {
+        for (int i = 0; i < CIRCLE_SEGMENTS; i++) {
+            double angle = Math.PI * 2.0 * i / CIRCLE_SEGMENTS;
+            CIRCLE_U[i] = Math.cos(angle);
+            CIRCLE_V[i] = Math.sin(angle);
+        }
+    }
 
     private ReachableSurface() {}
 
@@ -36,11 +46,27 @@ public final class ReachableSurface {
                 double radius = Math.sqrt(radiusSquared);
                 double centerU = cameraCoordinate(camera, u);
                 double centerV = cameraCoordinate(camera, v);
+                double nearU = Math.max(min[u], Math.min(centerU, max[u])) - centerU;
+                double nearV = Math.max(min[v], Math.min(centerV, max[v])) - centerV;
+                if (nearU * nearU + nearV * nearV >= radiusSquared) continue;
+
+                // Most close targets have a wholly reachable face. Emit that
+                // rectangle directly instead of constructing/clipping a circle.
+                double farU = Math.max(Math.abs(min[u] - centerU), Math.abs(max[u] - centerU));
+                double farV = Math.max(Math.abs(min[v] - centerV), Math.abs(max[v] - centerV));
+                if (farU * farU + farV * farV <= radiusSquared) {
+                    Vec3 a = point(axis, fixed, u, min[u], v, min[v]);
+                    Vec3 b = point(axis, fixed, u, max[u], v, min[v]);
+                    Vec3 c = point(axis, fixed, u, max[u], v, max[v]);
+                    Vec3 d = point(axis, fixed, u, min[u], v, max[v]);
+                    result.add(side == 0 ? new Triangle(a, c, b) : new Triangle(a, b, c));
+                    result.add(side == 0 ? new Triangle(a, d, c) : new Triangle(a, c, d));
+                    continue;
+                }
                 List<Point2> polygon = new ArrayList<Point2>(CIRCLE_SEGMENTS);
                 for (int i = 0; i < CIRCLE_SEGMENTS; i++) {
-                    double angle = Math.PI * 2.0 * i / CIRCLE_SEGMENTS;
-                    polygon.add(new Point2(centerU + Math.cos(angle) * radius,
-                            centerV + Math.sin(angle) * radius));
+                    polygon.add(new Point2(centerU + CIRCLE_U[i] * radius,
+                            centerV + CIRCLE_V[i] * radius));
                 }
                 polygon = clip(polygon, 0, min[u], true);
                 polygon = clip(polygon, 0, max[u], false);
@@ -91,11 +117,9 @@ public final class ReachableSurface {
     }
 
     private static Vec3 point(int axis, double fixed, int u, double uValue, int v, double vValue) {
-        double[] coordinates = new double[3];
-        coordinates[axis] = fixed;
-        coordinates[u] = uValue;
-        coordinates[v] = vValue;
-        return new Vec3(coordinates[0], coordinates[1], coordinates[2]);
+        if (axis == 0) return new Vec3(fixed, uValue, vValue);
+        if (axis == 1) return new Vec3(vValue, fixed, uValue);
+        return new Vec3(uValue, vValue, fixed);
     }
 
     private static double cameraCoordinate(Vec3 camera, int axis) {

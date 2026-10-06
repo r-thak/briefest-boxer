@@ -49,7 +49,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
 
         for (Entity entity : context.world().getEntities()) {
             Entity target = entity;
-            if (target == client.player || !target.isAlive() || target.isSpectator() || target.isInvisible()) continue;
+            if (!(target instanceof net.minecraft.entity.LivingEntity) || target == client.player || !target.isAlive() || target.isSpectator() || target.isInvisible()) continue;
             if (target instanceof AbstractClientPlayerEntity && !BriefestBoxerConfig.showAimPoints) continue;
             if (!(target instanceof AbstractClientPlayerEntity) && !BriefestBoxerConfig.showEntities) continue;
             Box box = hittableBounds(target, context.tickCounter().getTickDelta(false));
@@ -57,7 +57,8 @@ public final class BriefestBoxerClient implements ClientModInitializer {
             Vec3 coreCamera = vector(camera);
             double distanceSquared = EntityHighlightSelector.distanceSquared(coreCamera, geometry);
             Vec3d closest = closestPoint(camera, box);
-            if (distanceSquared > maxDistanceSquared || !visible(context, client.player, camera, closest)) continue;
+            if (distanceSquared > Math.min(maxDistanceSquared, reach * reach)
+                    || (nearest != null && distanceSquared >= nearest.distanceSquared) || !visible(context, client.player, camera, closest)) continue;
             Target candidate = new Target(target, box, distanceSquared);
             if (nearest == null || candidate.distanceSquared < nearest.distanceSquared) nearest = candidate;
         }
@@ -114,9 +115,9 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         double backstep = 1.0 - tickDelta;
         double margin = entity.getTargetingMargin();
         return entity.getBoundingBox().expand(margin).offset(
-                (entity.prevX - entity.getX()) * backstep,
-                (entity.prevY - entity.getY()) * backstep,
-                (entity.prevZ - entity.getZ()) * backstep);
+                (entity.lastRenderX - entity.getX()) * backstep,
+                (entity.lastRenderY - entity.getY()) * backstep,
+                (entity.lastRenderZ - entity.getZ()) * backstep);
     }
     private static void drawReachableSurface(WorldRenderContext context, VertexConsumer out, Vec3d camera,
             EntityHighlightSelector.Bounds bounds, double reach, int rgb, double opacity) {

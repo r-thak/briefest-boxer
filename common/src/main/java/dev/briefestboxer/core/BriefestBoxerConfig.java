@@ -20,6 +20,8 @@ public final class BriefestBoxerConfig {
     public static boolean showEntities = true;
     public static boolean showSulfurTrajectory = true;
     public static int aimRange = 32;
+    public static int maxHighlightedEntities = 4;
+    public static int hitboxOpacity = 50;
     public static int aimTolerance = 4;
     public static int trajectorySteps = 4096;
     public static int selectedColor = 0;
@@ -40,6 +42,10 @@ public final class BriefestBoxerConfig {
                 showEntities = values.getProperty("showEntities", "true").equalsIgnoreCase("true");
                 showSulfurTrajectory = values.getProperty("showSulfurTrajectory", "true").equalsIgnoreCase("true");
                 aimRange = valid(values, "aimRange", RANGES, 32);
+                try { maxHighlightedEntities = Math.max(1, Math.min(64, Integer.parseInt(values.getProperty("maxHighlightedEntities", "4")))); }
+                catch (NumberFormatException ignored) { maxHighlightedEntities = 4; }
+                try { hitboxOpacity = Math.max(0, Math.min(100, Integer.parseInt(values.getProperty("hitboxOpacity", "50")))); }
+                catch (NumberFormatException ignored) { hitboxOpacity = 50; }
                 aimTolerance = valid(values, "aimTolerance", TOLERANCES, 4);
                 trajectorySteps = valid(values, "trajectorySteps", STEPS, 4096);
                 // Previous defaults often cut off long, low-friction Sulfur Cube launches.
@@ -60,6 +66,8 @@ public final class BriefestBoxerConfig {
         values.setProperty("showEntities", Boolean.toString(showEntities));
         values.setProperty("showSulfurTrajectory", Boolean.toString(showSulfurTrajectory));
         values.setProperty("aimRange", Integer.toString(aimRange));
+        values.setProperty("maxHighlightedEntities", Integer.toString(maxHighlightedEntities));
+        values.setProperty("hitboxOpacity", Integer.toString(opacityPercent()));
         values.setProperty("aimTolerance", Integer.toString(aimTolerance));
         values.setProperty("trajectorySteps", Integer.toString(trajectorySteps));
         values.setProperty("selectedColor", Integer.toString(selectedColor));
@@ -81,6 +89,10 @@ public final class BriefestBoxerConfig {
     public static int otherColor() { return PALETTE[clampIndex(otherColor)]; }
     public static int trajectoryColor() { return PALETTE[clampIndex(trajectoryColor)]; }
     public static String colorName(int index) { return COLOR_NAMES[clampIndex(index)]; }
+    public static int opacityPercent() { return Math.max(0, Math.min(100, hitboxOpacity)); }
+    public static int hitboxAlpha() { return (int) Math.round(opacityPercent() * 255.0 / 100.0); }
+    public static int highlightLimit() { return Math.max(1, Math.min(64, maxHighlightedEntities)); }
+    public static int[] entityLimits() { return new int[] {1, 2, 3, 5, 10, 20, 32, 64}; }
     public static int[] ranges() { return RANGES.clone(); }
     public static int[] tolerances() { return TOLERANCES.clone(); }
     public static int[] steps() { return STEPS.clone(); }

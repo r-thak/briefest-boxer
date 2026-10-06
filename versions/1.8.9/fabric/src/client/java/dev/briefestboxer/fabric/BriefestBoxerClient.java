@@ -45,7 +45,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         double nearestDistance = Double.POSITIVE_INFINITY;
 
         for (Entity target : client.world.loadedEntities) {
-            if (target == client.player || !target.isAlive() || target.isInvisible()) continue;
+            if (!(target instanceof net.minecraft.entity.LivingEntity) || target == client.player || !target.isAlive() || target.isInvisible()) continue;
             if (target instanceof PlayerEntity && ((PlayerEntity) target).isSpectator()) continue;
             if (target instanceof PlayerEntity && !BriefestBoxerConfig.showAimPoints) continue;
             if (!(target instanceof PlayerEntity) && !BriefestBoxerConfig.showEntities) continue;

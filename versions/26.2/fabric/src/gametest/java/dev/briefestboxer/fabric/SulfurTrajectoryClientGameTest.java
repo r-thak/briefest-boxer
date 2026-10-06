@@ -79,6 +79,7 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 if (!BriefestBoxerClient.isAdultSulfurCube(cube)) {
                     throw new AssertionError("The size-2 adult Sulfur Cube must get the adult trajectory preview");
                 }
+                OverlayRenderClientChecks.run(client, cube);
                 cube.discard();
                 return null;
             });
@@ -87,19 +88,21 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 var level = singleplayer.getConnection().getServerLevel();
                 var player = singleplayer.getConnection().getServerPlayer();
                 int floorY = -58;
-                for (int x = -3; x <= 3; x++) {
+                for (int x = -10; x <= 3; x++) {
                     // Keep the complete configured forecast over a known floor.
                     // Some absorbed materials carry the cube more than 80 blocks
                     // from launch in 256 ticks, so a short platform made the server
                     // simulation leave the collision geometry seen by the client.
                     for (int z = -100; z <= 100; z++) {
-                        level.setBlockAndUpdate(new BlockPos(x, floorY - 1, z), Blocks.STONE.defaultBlockState());
+                        level.setBlockAndUpdate(new BlockPos(x, floorY - 1, z), Blocks.GRASS_BLOCK.defaultBlockState());
                         for (int y = floorY; y <= floorY + 12; y++) {
                             level.setBlockAndUpdate(new BlockPos(x, y, z), Blocks.AIR.defaultBlockState());
                         }
                     }
                 }
-                for (int x = -1; x <= 1; x++) {
+                // The oblique showcase view launches the cube diagonally, so
+                // span the flight lane with the collision wall.
+                for (int x = -8; x <= 1; x++) {
                     for (int y = floorY; y <= floorY + 8; y++) {
                         level.setBlockAndUpdate(new BlockPos(x, y, 8), Blocks.STONE.defaultBlockState());
                     }
@@ -114,7 +117,10 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 // test raised its own reach attribute), so it exercised the
                 // trajectory guide without exercising the reachable-surface
                 // highlight on the rendered client.
-                player.setPos(0.5, floorY, 0.5);
+                // View the cube obliquely so the predicted flight path is
+                // visible beside it in the screenshot instead of hidden behind
+                // the cube along the camera's look direction.
+                player.setPos(2.5, floorY, 0.5);
                 player.setDeltaMovement(Vec3.ZERO);
                 player.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.ENTITY_INTERACTION_RANGE)
                         .setBaseValue(6.0);
@@ -146,7 +152,7 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 // The GameTest teleports the server player during world setup.
                 // Resync the client camera entity before taking the visual
                 // snapshot so visibility rays originate from the actual player.
-                client.player.setPos(0.5, cube.getY(), 0.5);
+                client.player.setPos(2.5, cube.getY(), 0.5);
                 client.player.setDeltaMovement(Vec3.ZERO);
                 client.gameRenderer.mainCamera().update(client.getDeltaTracker());
                 aimAt(client.player, cube);
@@ -175,10 +181,36 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                 throw new AssertionError("The pre-hit trajectory test must use the actual aimed-at adult cube: "
                         + targetRay);
             }
-            // Keep a clearly labeled baseline for comparison with the in-flight
-            // capture below. The cube is stationary in this image by design;
-            // movement is only considered tested after the hit and client sync.
-            context.takeScreenshot("sulfur-trajectory-before-hit-static");
+            context.takeScreenshot("overlay-current-frame-targeted");
+            singleplayer.getServer().computeOnServer(server -> {
+                singleplayer.getConnection().getServerPlayer()
+                        .getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.ENTITY_INTERACTION_RANGE)
+                        .setBaseValue(2.6);
+                return null;
+            });
+            context.waitTicks(2);
+            connection.waitForClientboundPackets();
+            // Compose the showcase view from just outside full reach: only the
+            // nearest patch of the adult cube remains highlighted. A small
+            // camera yaw offset makes the forecast ribbon project beside the
+            // cube rather than disappearing along the view axis.
+            context.computeOnClient(client -> {
+                client.player.setYRot(client.player.getYRot() + 28.0F);
+                client.player.setXRot(client.player.getXRot() - 10.0F);
+                client.hitResult = new EntityHitResult(findCube(client, cubeId),
+                        findCube(client, cubeId).getBoundingBox().getCenter());
+                client.gameRenderer.mainCamera().update(client.getDeltaTracker());
+                return null;
+            });
+            context.takeScreenshot("sulfur-cube-partial-highlight-and-trajectory");
+            singleplayer.getServer().computeOnServer(server -> {
+                singleplayer.getConnection().getServerPlayer()
+                        .getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.ENTITY_INTERACTION_RANGE)
+                        .setBaseValue(6.0);
+                return null;
+            });
+            context.waitTicks(2);
+            connection.waitForClientboundPackets();
             var first = prediction.getPositions().get(0);
             var second = prediction.getPositions().get(1);
             Vec3 predictedLaunch = new Vec3(second.x - first.x, second.y - first.y, second.z - first.z);
@@ -272,15 +304,11 @@ public final class SulfurTrajectoryClientGameTest implements FabricClientGameTes
                             + ", displacement=" + clientDisplacement + " blocks");
                     context.computeOnClient(client -> {
                         SulfurCube cube = findCube(client, cubeId);
-                        // Turn the fixed camera perpendicular to the launch
-                        // direction. Looking straight down the flight path made
-                        // forward motion look like a static target in screenshots.
-                        client.player.setYRot(client.player.getYRot() + 35.0F);
                         client.hitResult = new EntityHitResult(cube, cube.getBoundingBox().getCenter());
                         return null;
                     });
-                    // Capture at this synchronized, still-airborne sample. Waiting
-                    // another game tick would put the cube into the nearby wall.
+                    // Keep the oblique launch view fixed. Rotating after the hit
+                    // pushed the cube off-screen and hid the forecast ribbon.
                     context.takeScreenshot("sulfur-trajectory-preview-in-flight");
                     capturedInFlight = true;
                 }

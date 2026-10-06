@@ -6,10 +6,31 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class ReachableSurfaceTest {
     private static final EntityHighlightSelector.Bounds BOX =
             new EntityHighlightSelector.Bounds(-0.3, 0.0, -0.3, 0.3, 1.8, 0.3);
+
+    @Test
+    void whollyReachableFaceHasExactCoverage() {
+        List<ReachableSurface.Triangle> triangles = ReachableSurface.mesh(BOX, new Vec3(0, 0.9, -1.0), 3.0);
+        assertEquals(0.6 * 1.8, area(triangles), 1.0E-10);
+    }
+
+    @Test
+    void partialFaceDoesNotExpandToItsRectangle() {
+        Vec3 camera = new Vec3(0, 0.9, -1.0);
+        double reach = 0.8;
+        List<ReachableSurface.Triangle> triangles = ReachableSurface.mesh(BOX, camera, reach);
+        assertFalse(triangles.isEmpty());
+        assertTrue(area(triangles) < 0.6 * 1.8);
+        for (ReachableSurface.Triangle t : triangles) {
+            assertTrue(distanceSquared(t.a, camera) <= reach * reach + 1.0E-9);
+            assertTrue(distanceSquared(t.b, camera) <= reach * reach + 1.0E-9);
+            assertTrue(distanceSquared(t.c, camera) <= reach * reach + 1.0E-9);
+        }
+    }
 
     @Test
     void reachableCoverageGrowsAsCameraApproaches() {

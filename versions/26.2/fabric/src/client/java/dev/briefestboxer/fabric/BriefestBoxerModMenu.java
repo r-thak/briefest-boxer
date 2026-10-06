@@ -5,6 +5,8 @@ import com.terraformersmc.modmenu.api.ModMenuApi;
 import dev.briefestboxer.core.BriefestBoxerConfig;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.AbstractSliderButton;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
@@ -14,9 +16,30 @@ public final class BriefestBoxerModMenu implements ModMenuApi {
         return BriefestBoxerConfigScreen::new;
     }
 
+    private static final class HitboxOpacitySlider extends AbstractSliderButton {
+        private HitboxOpacitySlider(int x, int y, int width) {
+            super(x, y, width, 20, Component.empty(), BriefestBoxerConfig.opacityPercent() / 100.0);
+            updateMessage();
+        }
+
+        @Override
+        protected void updateMessage() {
+            setMessage(Component.literal("Hitbox opacity: " + Math.round(value * 100.0) + "%"));
+        }
+
+        @Override
+        protected void applyValue() {
+            BriefestBoxerConfig.hitboxOpacity = (int) Math.round(value * 100.0);
+            BriefestBoxerConfig.save();
+        }
+    }
+
     private static final class BriefestBoxerConfigScreen extends Screen {
         private final Screen parent;
         private int headingY;
+        private int limitLabelX;
+        private int limitLabelY;
+        private EditBox entityLimit;
 
         private BriefestBoxerConfigScreen(Screen parent) {
             super(Component.literal("Briefest Boxer Settings"));
@@ -27,8 +50,8 @@ public final class BriefestBoxerModMenu implements ModMenuApi {
         protected void init() {
             int buttonWidth = Math.min(300, Math.max(180, width - 24));
             int x = (width - buttonWidth) / 2;
-            int rowGap = Math.max(20, Math.min(25, (height - 40 - 20) / 8));
-            int groupHeight = rowGap * 8 + 20;
+            int rowGap = Math.max(20, Math.min(25, (height - 40 - 20) / 10));
+            int groupHeight = rowGap * 10 + 20;
             int y = Math.max(20, (height - groupHeight) / 2);
             headingY = y - 14;
             addRenderableWidget(button(x, y, buttonWidth, () -> "Player highlights: " + onOff(BriefestBoxerConfig.showAimPoints),
@@ -47,8 +70,31 @@ public final class BriefestBoxerModMenu implements ModMenuApi {
                     () -> BriefestBoxerConfig.trajectoryColor = (BriefestBoxerConfig.trajectoryColor + 1) % 6));
             addRenderableWidget(button(x, y + rowGap * 7, buttonWidth, () -> "Other entity color: " + BriefestBoxerConfig.colorName(BriefestBoxerConfig.otherColor),
                     () -> BriefestBoxerConfig.otherColor = (BriefestBoxerConfig.otherColor + 1) % 6));
+            limitLabelX = x;
+            limitLabelY = y + rowGap * 8 + 6;
+            entityLimit = new EditBox(font, x + buttonWidth - 52, y + rowGap * 8, 52, 20,
+                    Component.literal("Max highlighted entities (1–64)"));
+            entityLimit.setTextColor(0xFFFFFFFF);
+            entityLimit.setTextColorUneditable(0xFF707070);
+            entityLimit.setMaxLength(2);
+            entityLimit.setValue(Integer.toString(BriefestBoxerConfig.highlightLimit()));
+            entityLimit.setResponder(value -> {
+                try {
+                    int count = Integer.parseInt(value);
+                    if (count < 1 || count > 64) throw new NumberFormatException();
+                    entityLimit.setTextColor(0xFFFFFFFF);
+                    BriefestBoxerConfig.maxHighlightedEntities = count;
+                    BriefestBoxerConfig.save();
+                } catch (NumberFormatException ignored) {
+                    // Allow clearing the field while typing; invalid values
+                    // never replace the last valid saved limit.
+                    entityLimit.setTextColor(0xFFFF5555);
+                }
+            });
+            addRenderableWidget(entityLimit);
+            addRenderableWidget(new HitboxOpacitySlider(x, y + rowGap * 9, buttonWidth));
             addRenderableWidget(Button.builder(Component.literal("Done"), button -> onClose())
-                    .bounds(width / 2 - Math.min(100, buttonWidth / 2), y + rowGap * 8, Math.min(200, buttonWidth), 20).build());
+                    .bounds(width / 2 - Math.min(100, buttonWidth / 2), y + rowGap * 10, Math.min(200, buttonWidth), 20).build());
         }
 
         private Button button(int x, int y, int w, java.util.function.Supplier<String> label, Runnable action) {
@@ -62,7 +108,8 @@ public final class BriefestBoxerModMenu implements ModMenuApi {
         @Override
         public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
             super.extractRenderState(graphics, mouseX, mouseY, delta);
-            graphics.centeredText(font, title, width / 2, headingY, 0xFFFFFF);
+            graphics.centeredText(font, title, width / 2, headingY, 0xFFFFFFFF);
+            graphics.text(font, "Max entities (1–64)", limitLabelX, limitLabelY, 0xFFFFFFFF);
         }
 
         @Override

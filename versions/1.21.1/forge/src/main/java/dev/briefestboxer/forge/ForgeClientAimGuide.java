@@ -61,7 +61,8 @@ public final class ForgeClientAimGuide {
             AABB box = hittableBounds(target, event.getPartialTick());
             net.minecraft.world.phys.Vec3 closest = closest(camera, box);
             double d2 = camera.distanceToSqr(closest);
-            if (d2 > scanRadius * scanRadius || !visible(client, client.player, camera, closest)) continue;
+            if (d2 > Math.min(scanRadius * scanRadius, reach * reach)
+                    || (nearest != null && d2 >= nearest.distanceSquared) || !visible(client, client.player, camera, closest)) continue;
             if (nearest == null || d2 < nearest.distanceSquared) nearest = new Target(target, box, d2);
         }
 
@@ -118,9 +119,9 @@ public final class ForgeClientAimGuide {
         double backstep = 1.0 - partialTick;
         double margin = entity.getPickRadius();
         return entity.getBoundingBox().inflate(margin).move(
-                (entity.xo - entity.getX()) * backstep,
-                (entity.yo - entity.getY()) * backstep,
-                (entity.zo - entity.getZ()) * backstep);
+                (entity.xOld - entity.getX()) * backstep,
+                (entity.yOld - entity.getY()) * backstep,
+                (entity.zOld - entity.getZ()) * backstep);
     }
 
     private static net.minecraft.world.phys.Vec3 gameVec(Vec3 p) { return new net.minecraft.world.phys.Vec3(p.x, p.y, p.z); }

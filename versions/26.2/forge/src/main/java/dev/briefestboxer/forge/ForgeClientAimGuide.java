@@ -4,47 +4,39 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.eventbus.api.listener.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.client.event.RenderLivingEvent;
+import net.minecraftforge.client.event.RenderAvatarEvent;
 import net.minecraft.client.Minecraft;
 import net.minecraft.gizmos.Gizmos;
 import net.minecraft.gizmos.GizmoStyle;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.SulfurCubeArchetype;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.monster.cubemob.SulfurCube;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.core.registries.Registries;
-import net.minecraft.world.item.enchantment.EnchantmentHelper;
-import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.phys.shapes.VoxelShape;
 
 import dev.briefestboxer.core.BriefestBoxerConfig;
 import dev.briefestboxer.core.EntityHighlightSelector;
 import dev.briefestboxer.core.EntityTargetGrace;
 import dev.briefestboxer.core.ReachableSurface;
-import dev.briefestboxer.core.SulfurCubeHitModel;
 import dev.briefestboxer.core.Trajectory;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 @Mod.EventBusSubscriber(modid = BriefestBoxerMod.MOD_ID, value = Dist.CLIENT)
 public final class ForgeClientAimGuide {
-    // Gizmo instances with the default expiry (0) are dropped during collection.
-    // Refresh these short-lived render commands every frame without leaving a trail.
-    private static final int GIZMO_REFRESH_LIFETIME_MS = 50;
     private static boolean configLoaded;
-    private static final Map<Integer, PatchState> PATCHES = new HashMap<>();
+    private static boolean submittedThisFrame;
     private static int selectedEntityId = -1;
+    private static final SulfurPredictionCache predictionCache = new SulfurPredictionCache();
     private static final long TRAJECTORY_MISS_GRACE_NANOS = 100_000_000L;
     private static final EntityTargetGrace<SulfurCube> trajectoryTargetGrace = new EntityTargetGrace<>();
 
@@ -53,7 +45,12 @@ public final class ForgeClientAimGuide {
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent.Post event) {
         Minecraft client = Minecraft.getInstance();
-        if (client.player == null) return;
+        if (client.player == null || client.level == null) {
+            selectedEntityId = -1;
+            trajectoryTargetGrace.clear();
+            predictionCache.clear();
+            return;
+        }
         if (!configLoaded) {
             BriefestBoxerConfig.load(client.gameDirectory.toPath());
             configLoaded = true;
@@ -61,167 +58,189 @@ public final class ForgeClientAimGuide {
     }
 
     @SubscribeEvent
-    public static void onRenderTick(TickEvent.RenderTickEvent.Post event) {
+    public static void onRenderTick(TickEvent.RenderTickEvent.Pre event) {
+        submittedThisFrame = false;
+    }
+
+    @SubscribeEvent
+    public static void onLivingRender(RenderLivingEvent.Pre event) {
+        submitOverlay();
+    }
+
+    @SubscribeEvent
+    public static void onAvatarRender(RenderAvatarEvent.Pre event) {
+        submitOverlay();
+    }
+
+    private static void submitOverlay() {
+        if (submittedThisFrame) return;
+        submittedThisFrame = true;
         Minecraft client = Minecraft.getInstance();
-        if (client.player == null || client.level == null) return;
+        if (client.player == null || client.level == null) {
+            selectedEntityId = -1;
+            trajectoryTargetGrace.clear();
+            predictionCache.clear();
+            return;
+        }
+        // RenderTick.Post queued the previous pose for the next frame. Entity
+        // submission has the current camera and runs before gizmo finalization.
         try (Gizmos.TemporaryCollection ignored = client.levelRenderer.collectPerFrameRenderThreadGizmos()) {
-            float partialTick = event.timer().getGameTimeDeltaPartialTick(false);
-            renderEntityHighlights(client, partialTick);
-            renderSulfurPrediction(client, partialTick);
+            renderEntityHighlights(client);
+            renderSulfurPrediction(client);
         }
     }
 
-    private static void renderEntityHighlights(Minecraft client, float partialTick) {
-        if (!BriefestBoxerConfig.showAimPoints && !BriefestBoxerConfig.showEntities) {
-            PATCHES.clear();
+    private static void renderEntityHighlights(Minecraft client) {
+        if (BriefestBoxerConfig.hitboxAlpha() == 0
+                || (!BriefestBoxerConfig.showAimPoints && !BriefestBoxerConfig.showEntities)) {
             selectedEntityId = -1;
             return;
         }
         Entity viewer = client.player;
         Vec3 camera = client.gameRenderer.mainCamera().position();
-        double scanRadius = BriefestBoxerConfig.aimRange();
-        double scanRadiusSquared = scanRadius * scanRadius;
+        dev.briefestboxer.core.Vec3 coreCamera = vector(camera);
         double reach = Math.max(0.0, client.player.getAttributeValue(Attributes.ENTITY_INTERACTION_RANGE));
-        TargetDistance nearest = null;
-
+        double radius = Math.min(BriefestBoxerConfig.aimRange(), reach);
+        if (radius <= 0.0) { selectedEntityId = -1; return; }
+        double radiusSquared = radius * radius;
+        List<TargetDistance> candidates = new ArrayList<>();
         for (Entity entity : client.level.entitiesForRendering()) {
-            if (!(entity instanceof LivingEntity target) || target == viewer || !target.isAlive()
-                    || target.isSpectator() || target.isInvisible()) continue;
-            if (target instanceof net.minecraft.world.entity.player.Player && !BriefestBoxerConfig.showAimPoints) continue;
-            if (!(target instanceof net.minecraft.world.entity.player.Player) && !BriefestBoxerConfig.showEntities) continue;
-            AABB bounds = hittableBounds(target, partialTick);
-            Vec3 closest = closestPoint(bounds, camera);
-            double distanceSquared = EntityHighlightSelector.distanceSquared(vector(camera), bounds(bounds));
-            if (distanceSquared > scanRadiusSquared || !isVisible(client, viewer, camera, bounds, closest)) continue;
-            TargetDistance candidate = new TargetDistance(target, bounds, distanceSquared);
-            if (nearest == null || distanceSquared < nearest.distanceSquared) nearest = candidate;
+            // Dropped items (and other non-living entities) are not attack targets.
+            if (!(entity instanceof net.minecraft.world.entity.LivingEntity)
+                    || entity == viewer || !entity.isAlive() || entity.isSpectator() || entity.isInvisible()) continue;
+            boolean player = entity instanceof net.minecraft.world.entity.player.Player;
+            if (player ? !BriefestBoxerConfig.showAimPoints : !BriefestBoxerConfig.showEntities) continue;
+            AABB box = hittableBounds(entity, renderPartialTick(client, entity));
+            double distance = EntityHighlightSelector.distanceSquared(coreCamera, bounds(box));
+            if (distance <= radiusSquared) candidates.add(new TargetDistance(entity, box, distance));
         }
+        candidates.sort(java.util.Comparator.comparingDouble(candidate -> candidate.distanceSquared
+                - (candidate.entity.getId() == selectedEntityId ? 0.12 * 0.12 : 0.0)));
+        int shown = 0;
+        int firstId = -1;
+        for (TargetDistance candidate : candidates) {
 
-        // Stabilize selection when adjacent targets have nearly equal camera distance.
-        if (nearest != null && selectedEntityId >= 0 && nearest.entity.getId() != selectedEntityId) {
-            for (Entity entity : client.level.entitiesForRendering()) {
-                if (entity.getId() != selectedEntityId || !(entity instanceof LivingEntity current)
-                        || !current.isAlive() || current.isInvisible() || current.isSpectator()) continue;
-                if (current instanceof net.minecraft.world.entity.player.Player && !BriefestBoxerConfig.showAimPoints) break;
-                if (!(current instanceof net.minecraft.world.entity.player.Player) && !BriefestBoxerConfig.showEntities) break;
-                AABB currentBounds = hittableBounds(current, partialTick);
-                EntityHighlightSelector.Bounds currentGeometry = bounds(currentBounds);
-                double currentDistance = EntityHighlightSelector.distanceSquared(vector(camera), currentGeometry);
-                Vec3 currentClosest = closestPoint(currentBounds, camera);
-                if (currentDistance <= scanRadiusSquared && currentDistance <= reach * reach
-                        && currentDistance <= nearest.distanceSquared + 0.12 * 0.12
-                        && isVisible(client, viewer, camera, currentBounds, currentClosest)) {
-                    nearest = new TargetDistance(current, currentBounds, currentDistance);
-                }
-                break;
-            }
-        }
-
-        boolean inReach = nearest != null && reach > 0 && nearest.distanceSquared <= reach * reach;
-        int selectedId = inReach ? nearest.entity.getId() : -1;
-        if (inReach) {
-            if (selectedEntityId != selectedId) PATCHES.clear();
-            EntityHighlightSelector.Bounds geometry = bounds(nearest.bounds);
-            selectedEntityId = selectedId;
-            PatchState state = PATCHES.computeIfAbsent(selectedId, id -> new PatchState());
-            state.entity = nearest.entity;
-            state.bounds = geometry;
-        }
-        if (!inReach) {
-            selectedEntityId = -1;
-            PATCHES.clear();
-        }
-        for (var iterator = PATCHES.entrySet().iterator(); iterator.hasNext();) {
-            Map.Entry<Integer, PatchState> entry = iterator.next();
-            PatchState state = entry.getValue();
-            if (state.entity == null || state.entity.isRemoved() || !state.entity.isAlive()) {
-                iterator.remove();
-                continue;
-            }
-            int color = state.entity instanceof net.minecraft.world.entity.player.Player
+            int color = candidate.entity instanceof net.minecraft.world.entity.player.Player
                     ? BriefestBoxerConfig.selectedColor() : BriefestBoxerConfig.otherColor();
-            drawReachableSurface(client, viewer, camera, state.bounds, reach,
-                    color);
+            if (!drawReachableSurface(client, viewer, camera, bounds(candidate.bounds), reach, color)) continue;
+            if (shown == 0) firstId = candidate.entity.getId();
+            if (++shown >= BriefestBoxerConfig.highlightLimit()) break;
         }
+        selectedEntityId = firstId;
     }
 
-    private static void drawReachableSurface(Minecraft client, Entity viewer, Vec3 camera,
+    private static float renderPartialTick(Minecraft client, Entity entity) {
+        return client.getDeltaTracker().getGameTimeDeltaPartialTick(!client.level.tickRateManager().isEntityFrozen(entity));
+    }
+
+    /** Draws only the AABB surface that lies within interaction reach. */
+    private static boolean drawReachableSurface(Minecraft client, Entity viewer, Vec3 camera,
             EntityHighlightSelector.Bounds box, double reach, int rgb) {
-        List<Vec3[]> visibleTriangles = new ArrayList<>();
-        for (ReachableSurface.Triangle triangle : ReachableSurface.mesh(box, vector(camera), reach)) {
-            Vec3 a = gameVec(triangle.a), b = gameVec(triangle.b), c = gameVec(triangle.c);
-            Vec3 sample = a.add(b).add(c).scale(1.0 / 3.0);
-            if (!isPointVisible(client, viewer, camera, sample)) continue;
-            visibleTriangles.add(new Vec3[] {a, b, c});
-        }
-        if (visibleTriangles.isEmpty()) return;
-        int color = 0xFF000000 | (rgb & 0xFFFFFF);
-        // Draw over entity geometry, but only submit triangles with a clear block ray.
-        GizmoStyle style = GizmoStyle.fill(color);
-        Gizmos.addGizmo((primitives, progress) -> {
-            int fill = style.multipliedFill(progress);
-            for (Vec3[] triangle : visibleTriangles) {
-                primitives.addTriangleFan(triangle, fill);
+        List<ReachableSurface.Triangle> mesh = ReachableSurface.mesh(box, vector(camera), reach);
+        if (mesh.isEmpty()) return false;
+        List<EntityHighlightSelector.Bounds> blockers = new ArrayList<>();
+        var context = net.minecraft.world.phys.shapes.CollisionContext.of(viewer);
+        // Collect actual targeting shapes once; subtract their projected shadows
+        // from each face instead of inferring holes from sparse ray samples.
+        for (int x = (int) Math.floor(Math.min(camera.x, box.minX)) - 1;
+                x <= Math.floor(Math.max(camera.x, box.maxX)) + 1; x++) {
+            for (int y = (int) Math.floor(Math.min(camera.y, box.minY)) - 1;
+                    y <= Math.floor(Math.max(camera.y, box.maxY)) + 1; y++) {
+                for (int z = (int) Math.floor(Math.min(camera.z, box.minZ)) - 1;
+                        z <= Math.floor(Math.max(camera.z, box.maxZ)) + 1; z++) {
+                    var pos = new net.minecraft.core.BlockPos(x, y, z);
+                    var state = client.level.getBlockState(pos);
+                    if (state.isAir() || state.is(BlockTags.LEAVES)) continue;
+                    for (AABB part : state.getShape(client.level, pos, context).toAabbs()) {
+                        blockers.add(bounds(part.move(pos)));
+                    }
+                }
             }
-        }).setAlwaysOnTop().persistForMillis(GIZMO_REFRESH_LIFETIME_MS);
+        }
+        List<dev.briefestboxer.core.Vec3[]> visibleQuads =
+                dev.briefestboxer.core.SurfaceOcclusion.quads(mesh, vector(camera), blockers);
+        if (visibleQuads.isEmpty()) return false;
+        int color = (BriefestBoxerConfig.hitboxAlpha() << 24) | (rgb & 0xFFFFFF);
+        // These are actual clipped face quads, not their rectangular bounding
+        // slabs. Submit one command for this frame so old poses cannot overlap.
+        Gizmos.addGizmo((primitives, progress) -> {
+            for (dev.briefestboxer.core.Vec3[] quad : visibleQuads) {
+                primitives.addQuad(gameVec(quad[0]), gameVec(quad[1]), gameVec(quad[2]), gameVec(quad[3]), color);
+            }
+        }).setAlwaysOnTop();
+        return true;
     }
 
     private static Vec3 gameVec(dev.briefestboxer.core.Vec3 p) { return new Vec3(p.x, p.y, p.z); }
 
-    private static boolean isPointVisible(Minecraft client, Entity viewer, Vec3 camera, Vec3 point) {
+    static boolean isPointVisible(Minecraft client, Entity viewer, Vec3 camera, Vec3 point) {
         double pointDistance = camera.distanceToSqr(point);
         if (pointDistance < 1.0E-8) return true;
-        HitResult obstruction = client.level.clip(new ClipContext(camera, point,
-                ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, viewer));
-        return obstruction.getType() != HitResult.Type.BLOCK
-                || camera.distanceToSqr(obstruction.getLocation()) >= pointDistance - 0.01;
+        return !hasOpaqueBlockBetween(client, viewer, camera, point, pointDistance);
     }
 
-    private static AABB interpolatedBounds(Entity entity, float partialTick) {
-        Vec3 renderOffset = entity.getPosition(partialTick).subtract(entity.position());
-        return entity.getBoundingBox().move(renderOffset);
+    static AABB interpolatedBounds(Entity entity, float partialTick) {
+        // EntityRenderer interpolates xOld/yOld/zOld. getPosition() instead
+        // interpolates xo/yo/zo, which can differ after network movement.
+        double backstep = 1.0 - partialTick;
+        return entity.getBoundingBox().move((entity.xOld - entity.getX()) * backstep,
+                (entity.yOld - entity.getY()) * backstep, (entity.zOld - entity.getZ()) * backstep);
     }
 
-    /** Includes the same pick-radius overspill Minecraft uses when ray picking entities. */
+    /** Includes the targeting-margin overspill Minecraft uses when ray picking entities. */
     private static AABB hittableBounds(Entity entity, float partialTick) {
         AABB bounds = interpolatedBounds(entity, partialTick);
         float pickRadius = entity.getPickRadius();
         return pickRadius > 0.0F ? bounds.inflate(pickRadius) : bounds;
     }
 
-    private static final class PatchState {
-        private EntityHighlightSelector.Bounds bounds;
-        private Entity entity;
-        private PatchState() {}
-    }
-
-    private static Vec3 closestPoint(AABB box, Vec3 point) {
-        return new Vec3(clamp(point.x, box.minX, box.maxX), clamp(point.y, box.minY, box.maxY),
-                clamp(point.z, box.minZ, box.maxZ));
-    }
-
     private static EntityHighlightSelector.Bounds bounds(AABB box) {
         return new EntityHighlightSelector.Bounds(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ);
     }
 
-    private static boolean isVisible(Minecraft client, Entity viewer, Vec3 camera, AABB box, Vec3 closest) {
-        Vec3 center = box.getCenter();
-        for (Vec3 sample : List.of(closest, center, new Vec3(center.x, box.maxY - 0.05, center.z),
-                new Vec3(center.x, box.minY + 0.05, center.z), new Vec3(box.minX + 0.02, center.y, center.z),
-                new Vec3(box.maxX - 0.02, center.y, center.z))) {
-            double distanceSquared = camera.distanceToSqr(sample);
-            if (distanceSquared < 1.0E-8) return true;
-            HitResult obstruction = client.level.clip(new ClipContext(camera, sample,
-                    ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, viewer));
+    /** Leaves can have collider shapes even though their sparse foliage should not hide a target. */
+    private static boolean hasOpaqueBlockBetween(Minecraft client, Entity viewer, Vec3 camera,
+            Vec3 point, double pointDistance) {
+        Vec3 ray = point.subtract(camera);
+        double rayLength = ray.length();
+        if (rayLength < 1.0E-4) return false;
+        Vec3 direction = ray.scale(1.0 / rayLength);
+        Vec3 start = camera;
+        // Skip leaf blocks one at a time, but keep ordinary solid blocks as occluders.
+        // This avoids treating the first leaf in a dense shrub canopy as a wall.
+        for (int skippedLeaves = 0; skippedLeaves < 64; skippedLeaves++) {
+            HitResult obstruction = client.level.clip(new ClipContext(start, point,
+                    ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, viewer));
             if (obstruction.getType() != HitResult.Type.BLOCK
-                    || camera.distanceToSqr(obstruction.getLocation()) >= distanceSquared - 0.01) return true;
+                    || camera.distanceToSqr(obstruction.getLocation()) >= pointDistance - 0.01) return false;
+            if (!client.level.getBlockState(((net.minecraft.world.phys.BlockHitResult) obstruction).getBlockPos())
+                    .is(BlockTags.LEAVES)) return true;
+            var leafPos = ((net.minecraft.world.phys.BlockHitResult) obstruction).getBlockPos();
+            double passed = nextBlockExitDistance(camera, direction, leafPos);
+            if (passed >= rayLength) return false;
+            start = camera.add(direction.scale(passed));
         }
+        // A long run of foliage should not hide a hittable part. The configured
+        // scan range caps this loop's ray length, and non-leaf solids still stop it.
         return false;
     }
 
-    private static void renderSulfurPrediction(Minecraft client, float partialTick) {
+    private static double nextBlockExitDistance(Vec3 origin, Vec3 direction,
+            net.minecraft.core.BlockPos block) {
+        double distance = Double.POSITIVE_INFINITY;
+        if (direction.x > 1.0E-9) distance = Math.min(distance, (block.getX() + 1.0 - origin.x) / direction.x);
+        else if (direction.x < -1.0E-9) distance = Math.min(distance, (block.getX() - origin.x) / direction.x);
+        if (direction.y > 1.0E-9) distance = Math.min(distance, (block.getY() + 1.0 - origin.y) / direction.y);
+        else if (direction.y < -1.0E-9) distance = Math.min(distance, (block.getY() - origin.y) / direction.y);
+        if (direction.z > 1.0E-9) distance = Math.min(distance, (block.getZ() + 1.0 - origin.z) / direction.z);
+        else if (direction.z < -1.0E-9) distance = Math.min(distance, (block.getZ() - origin.z) / direction.z);
+        return Double.isFinite(distance) ? distance + 0.001 : 0.001;
+    }
+
+    private static void renderSulfurPrediction(Minecraft client) {
         if (!BriefestBoxerConfig.showSulfurTrajectory) {
             trajectoryTargetGrace.clear();
+            predictionCache.clear();
             return;
         }
         long now = System.nanoTime();
@@ -240,29 +259,77 @@ public final class ForgeClientAimGuide {
         } else {
             trajectoryTargetGrace.clear();
         }
-        if (cube == null) return;
-        final SulfurCube targetCube = cube;
-
+        if (cube == null) { predictionCache.clear(); return; }
         ItemStack bodyItem = cube.getItemBySlot(EquipmentSlot.BODY);
-        List<SulfurCubeArchetype> archetypes = cube.matchingArchetypes(bodyItem);
-
-        // Player.attack samples its cooldown at a fixed half tick in 26.2.
-        float charge = client.player.getAttackStrengthScale(0.5F);
         ItemStack weapon = client.player.getWeaponItem();
-        float baseDamage = (float) effectiveAttribute(client.player, weapon,
-                net.minecraft.world.entity.EquipmentSlot.MAINHAND, Attributes.ATTACK_DAMAGE)
-                * (0.2F + charge * charge * 0.8F);
+        float charge = client.player.getAttackStrengthScale(0.5F);
+        AABB renderBounds = interpolatedBounds(cube, renderPartialTick(client, cube));
+        Vec3 renderCenter = renderBounds.getCenter();
+        AABB startingBounds = cube.getBoundingBox();
+        Vec3 center = startingBounds.getCenter();
+        Vec3 renderOffset = renderCenter.subtract(center);
+        SulfurCube targetCube = cube;
+        Trajectory path = predictionCache.get(client, cube, bodyItem, weapon, charge, startingBounds,
+                () -> calculateSulfurTrajectory(client, targetCube, bodyItem, weapon, charge, startingBounds));
+
+        int pathColor = 0xFF000000 | BriefestBoxerConfig.trajectoryColor();
+        renderTrajectoryRibbon(client, path, renderOffset, BriefestBoxerConfig.trajectoryColor());
+        dev.briefestboxer.core.Vec3 endPosition = path.getPositions().get(path.getPositions().size() - 1);
+        Vec3 end = new Vec3(endPosition.x, endPosition.y, endPosition.z);
+        AABB predictedBounds = cube.getBoundingBox().move(end.subtract(cube.getBoundingBox().getCenter()));
+        int translucent = (0x44 << 24) | BriefestBoxerConfig.trajectoryColor();
+        Gizmos.cuboid(predictedBounds, GizmoStyle.strokeAndFill(pathColor, 2.0F, translucent))
+                .setAlwaysOnTop();
+        Gizmos.point(end, pathColor, 12.0F).setAlwaysOnTop();
+    }
+
+    static boolean isAdultSulfurCube(SulfurCube cube) {
+        return cube != null && !cube.isBaby() && cube.getSize() == 2;
+    }
+
+    /** Use the game's screen-width line primitive so the path remains visible. */
+    private static void renderTrajectoryRibbon(Minecraft client, Trajectory path, Vec3 renderOffset, int rgb) {
+        int color = (0x99 << 24) | (rgb & 0xFFFFFF);
+        Gizmos.addGizmo((primitives, progress) -> {
+            var positions = path.getPositions();
+            // Smooth the starting point with the visible cube, while keeping
+            // future collision/landing coordinates anchored to the world.
+            Vec3 from = gameVec(positions.getFirst()).add(renderOffset);
+            for (int i = 1; i < positions.size(); i++) {
+                Vec3 to = gameVec(positions.get(i));
+                if (from.distanceToSqr(to) > 1.0E-12) primitives.addLine(from, to, color, 2.0F);
+                from = to;
+            }
+        }).setAlwaysOnTop();
+    }
+
+    private static Trajectory calculateSulfurTrajectory(Minecraft client, SulfurCube cube,
+            ItemStack bodyItem, ItemStack weapon, float charge, AABB physicsBounds) {
+        final SulfurCube targetCube = cube;
+        List<SulfurCubeArchetype> archetypes = cube.matchingArchetypes(bodyItem);
+        float unscaledDamage = (float) effectiveAttribute(client.player, weapon, net.minecraft.world.entity.EquipmentSlot.MAINHAND, Attributes.ATTACK_DAMAGE);
+        float enchantmentDamage = (enchantmentValue(weapon,
+                net.minecraft.world.item.enchantment.EnchantmentEffectComponents.DAMAGE, unscaledDamage)
+                - unscaledDamage) * charge;
+        float baseDamage = unscaledDamage * (0.2F + charge * charge * 0.8F);
         var damageSource = weapon.getDamageSource(client.player);
         boolean fullStrength = charge > 0.9F;
-        var enchantmentRegistry = client.level.registryAccess().lookupOrThrow(Registries.ENCHANTMENT);
         double weaponBonus = weapon.getItem().getAttackDamageBonus(cube, baseDamage, damageSource);
         double damage = Math.max(0.0, baseDamage + weaponBonus);
-        // LivingEntity applies the Sulfur Cube's absorbed-material armor before
-        // forwarding damage into its hurt/knockback path. Model that reduced value.
         boolean critical = fullStrength && client.player.fallDistance > 0.0 && !client.player.onGround()
                 && !client.player.onClimbable() && !client.player.isInWater()
                 && !client.player.isMobilityRestricted() && !client.player.isPassenger() && !client.player.isSprinting();
+        if (weapon.is(net.minecraft.world.item.Items.MACE)
+                && net.minecraft.world.item.MaceItem.canSmashAttack(client.player)) {
+            // MaceItem only adds Density on ServerLevel; reproduce the synced
+            // fall-distance effect here for the client forecast.
+            weaponBonus += enchantmentValue(weapon,
+                    net.minecraft.world.item.enchantment.EnchantmentEffectComponents.SMASH_DAMAGE_PER_FALLEN_BLOCK,
+                    0.0F) * client.player.fallDistance;
+            damage = Math.max(0.0, baseDamage + weaponBonus);
+        }
         if (critical) damage *= 1.5;
+        damage = Math.max(0.0, damage + enchantmentDamage);
         // Empty cubes use LivingEntity.hurtServer, which applies armor after the
         // attack's critical modifier. An absorbed cube overrides hurtServer and
         // directly invokes its knockback path, so armor does not reduce the hit.
@@ -272,286 +339,34 @@ public final class ForgeClientAimGuide {
                     (float) effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.ARMOR),
                     (float) effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.ARMOR_TOUGHNESS));
         }
-        int knockbackLevel = EnchantmentHelper.getItemEnchantmentLevel(
-                enchantmentRegistry.getOrThrow(Enchantments.KNOCKBACK), weapon);
-        // LivingEntity.getKnockback applies item enchantments then halves the result.
-        // Player.attack adds sprint knockback after that; SulfurCube applies 0.25 to this call.
-        double extraKnockback = (effectiveAttribute(client.player, weapon, net.minecraft.world.entity.EquipmentSlot.MAINHAND, Attributes.ATTACK_KNOCKBACK)
-                + knockbackLevel) * 0.5 + (client.player.isSprinting() && fullStrength ? 0.5 : 0.0);
-        // The game applies every matching archetype in registry order, so the final match supplies knockback.
-        SulfurCubeArchetype.KnockbackModifiers modifiers = archetypes.isEmpty()
-                ? SulfurCubeArchetype.DEFAULT_KNOCKBACK_MODIFIERS
-                : archetypes.getLast().knockbackModifiers();
-        AABB renderBounds = interpolatedBounds(cube, partialTick);
-        Vec3 renderCenter = renderBounds.getCenter();
-        AABB startingBounds = cube.getBoundingBox();
-        Vec3 center = startingBounds.getCenter();
-        Vec3 renderOffset = renderCenter.subtract(center);
-        dev.briefestboxer.core.Vec3 velocity = bodyItem.isEmpty()
-                ? SulfurCubeHitModel.vanillaVelocityAfterHit(vector(cube.getDeltaMovement()),
-                        vector(client.player.position()), vector(client.player.getLookAngle()), vector(cube.position()),
-                        0.4, extraKnockback, effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.KNOCKBACK_RESISTANCE), cube.onGround())
-                : SulfurCubeHitModel.velocityAfterHit(vector(cube.getDeltaMovement()),
-                        vector(client.player.position()), vector(client.player.getEyePosition()),
-                        vector(client.player.getLookAngle()), vector(cube.position()),
-                        vector(cube.getBoundingBox().getCenter()), cube.getBbHeight(),
-                        modifiers.horizontalPower(), modifiers.verticalPower(), damage, extraKnockback,
-                        effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.KNOCKBACK_RESISTANCE));
-        double airDragModifier = effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.AIR_DRAG_MODIFIER);
-        double horizontalAirDrag = clamp(1.0 - (1.0 - 0.91) * airDragModifier, 0.0, 1.0);
-        // LivingEntity uses the horizontal drag on Y for omnidirectional movers;
-        // absorbed Sulfur Cubes enable that movement mode.
-        double verticalBaseDrag = bodyItem.isEmpty() ? 0.98 : 0.91;
-        double verticalAirDrag = clamp(1.0 - (1.0 - verticalBaseDrag) * airDragModifier, 0.0, 1.0);
-        double gravity = effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.GRAVITY);
-        Trajectory path = Trajectory.withGroundBounces(vector(center), velocity,
-                new dev.briefestboxer.core.Vec3(0.0, -gravity, 0.0), horizontalAirDrag, verticalAirDrag,
-                effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.BOUNCINESS), cube.getBbHeight(),
-                effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.FRICTION_MODIFIER), cube.onGround(),
-                (x, y, z) -> sampleCubeSurface(client, targetCube, x, y, z),
-                (position, movement) -> clipCubeMovement(client, targetCube, startingBounds, center, position, movement),
-                liquidPhysics(client, targetCube, bodyItem, archetypes, startingBounds, center),
-                BriefestBoxerConfig.trajectorySteps);
-
-        int pathColor = 0xFF000000 | BriefestBoxerConfig.trajectoryColor();
-        renderTrajectoryRibbon(client, path, renderOffset, BriefestBoxerConfig.trajectoryColor());
-        dev.briefestboxer.core.Vec3 endPosition = path.getPositions().get(path.getPositions().size() - 1);
-        Vec3 end = new Vec3(endPosition.x, endPosition.y, endPosition.z).add(renderOffset);
-        AABB predictedBounds = renderBounds.move(end.subtract(renderCenter));
-        int translucent = (0x77 << 24) | BriefestBoxerConfig.trajectoryColor();
-        Gizmos.cuboid(predictedBounds, GizmoStyle.strokeAndFill(pathColor, 7.0F, translucent))
-                .setAlwaysOnTop().persistForMillis(GIZMO_REFRESH_LIFETIME_MS);
-        Gizmos.point(end, pathColor, 64.0F).setAlwaysOnTop().persistForMillis(GIZMO_REFRESH_LIFETIME_MS);
+        // Apply the synced enchantment value effects in the same order as
+        // LivingEntity.getKnockback, then add Player.attack's sprint bonus.
+        double extraKnockback = enchantmentValue(weapon,
+                net.minecraft.world.item.enchantment.EnchantmentEffectComponents.KNOCKBACK,
+                (float) effectiveAttribute(client.player, weapon, net.minecraft.world.entity.EquipmentSlot.MAINHAND, Attributes.ATTACK_KNOCKBACK))
+                * 0.5 + (client.player.isSprinting() && fullStrength ? 0.5 : 0.0);
+        return SulfurMovementForecast.calculate(cube, bodyItem, physicsBounds, client.player,
+                damageSource, (float) damage, extraKnockback, BriefestBoxerConfig.trajectorySteps);
     }
 
-    static boolean isAdultSulfurCube(SulfurCube cube) {
-        return cube != null && !cube.isBaby() && cube.getSize() == 2;
-    }
-
-    /** Filled ribbon stays visibly thick when the platform clamps GL line widths. */
-    private static void renderTrajectoryRibbon(Minecraft client, Trajectory path, Vec3 renderOffset, int rgb) {
-        var rotation = client.gameRenderer.mainCamera().rotation();
-        org.joml.Vector3f cameraRight = new org.joml.Vector3f(1.0F, 0.0F, 0.0F).rotate(rotation);
-        Vec3 fallbackSide = new Vec3(cameraRight.x, cameraRight.y, cameraRight.z);
-        Vec3 camera = client.gameRenderer.mainCamera().position();
-        List<Vec3[]> segments = new ArrayList<>();
-        for (int i = 1; i < path.getPositions().size(); i++) {
-            dev.briefestboxer.core.Vec3 previous = path.getPositions().get(i - 1);
-            dev.briefestboxer.core.Vec3 point = path.getPositions().get(i);
-            segments.add(new Vec3[] {
-                    new Vec3(previous.x, previous.y, previous.z).add(renderOffset),
-                    new Vec3(point.x, point.y, point.z).add(renderOffset)});
-        }
-        int glow = (0x02 << 24) | (rgb & 0xFFFFFF);
-        int core = (0x12 << 24) | (rgb & 0xFFFFFF);
-        Gizmos.addGizmo((primitives, progress) -> {
-            for (Vec3[] segment : segments) {
-                Vec3 from = segment[0], to = segment[1];
-                Vec3 direction = to.subtract(from);
-                double distance = Math.max(0.1, camera.distanceTo(from.add(to).scale(0.5)));
-                // Keep the world-space ribbon narrower than the old preview. The
-                // perspective scaling still prevents it from disappearing at range.
-                double coreHalfWidth = distance * 0.00008;
-                double glowHalfWidth = distance * 0.00018;
-                Vec3 view = camera.subtract(from.add(to).scale(0.5));
-                Vec3 side = direction.cross(view);
-                if (side.lengthSqr() < 1.0E-8) side = fallbackSide;
-                else side = side.normalize();
-                Vec3 glowSide = side.scale(glowHalfWidth);
-                Vec3 coreSide = side.scale(coreHalfWidth);
-                primitives.addQuad(from.subtract(glowSide), from.add(glowSide),
-                        to.add(glowSide), to.subtract(glowSide), glow);
-                primitives.addQuad(from.subtract(coreSide), from.add(coreSide),
-                        to.add(coreSide), to.subtract(coreSide), core);
-            }
-        }).setAlwaysOnTop().persistForMillis(GIZMO_REFRESH_LIFETIME_MS);
-    }
-
-    private static Trajectory.StepPhysicsSampler liquidPhysics(Minecraft client, SulfurCube cube,
-            ItemStack bodyItem, List<SulfurCubeArchetype> archetypes, AABB startingBounds, Vec3 startingCenter) {
-        boolean buoyant = !bodyItem.isEmpty() && archetypes.stream().anyMatch(SulfurCubeArchetype::buoyant);
-        double gravity = effectiveCubeAttribute(cube, bodyItem, archetypes, Attributes.GRAVITY);
-        double waterWalker = effectiveCubeAttribute(cube, bodyItem, archetypes,
-                Attributes.WATER_MOVEMENT_EFFICIENCY);
-        double fluidJumpThreshold = cube.getFluidJumpThreshold();
-        // The client entity's tick counter is one tick behind the server when
-        // the hit is issued; travelInFluid evaluates Sulfur Cube bobbing after
-        // the entity tick counter advances.
-        int startingTick = cube.tickCount + 1;
-        return new Trajectory.StepPhysicsSampler() {
-            @Override
-            public dev.briefestboxer.core.Vec3 beforeMovement(dev.briefestboxer.core.Vec3 position,
-                    dev.briefestboxer.core.Vec3 velocity, int tickIndex) {
-                Vec3 worldPosition = new Vec3(position.x, position.y, position.z);
-                FluidSample fluid = sampleWater(client, cube, startingBounds, startingCenter, worldPosition);
-                // Entity.tick applies current before each travel step, including
-                // the first simulated displacement from an already-submerged start.
-                if (!fluid.inWater() || fluid.current.lengthSqr() < 1.0E-12) return null;
-                Vec3 current = fluid.current;
-                if (velocity.x * velocity.x + velocity.z * velocity.z < 9.0E-6
-                        && current.horizontalDistance() < 0.0045) {
-                    current = new Vec3(current.x, 0.0, current.z).normalize().scale(0.0045);
-                }
-                return new dev.briefestboxer.core.Vec3(
-                        velocity.x + current.x, velocity.y + current.y, velocity.z + current.z);
-            }
-
-            @Override
-            public dev.briefestboxer.core.Vec3 afterMovement(dev.briefestboxer.core.Vec3 from,
-                    dev.briefestboxer.core.Vec3 to, dev.briefestboxer.core.Vec3 collisionVelocity,
-                    int tickIndex, boolean wasFalling, boolean wasOnGround) {
-                // Minecraft consumes the fluid state sampled at the start of travel;
-                // the post-move position only refreshes the state for the next tick.
-                Vec3 worldFrom = new Vec3(from.x, from.y, from.z);
-                FluidSample fluid = sampleWater(client, cube, startingBounds, startingCenter, worldFrom);
-                if (!fluid.inWater()) return null;
-
-                double slowdown = cube.isSprinting() ? 0.9 : 0.8;
-                double walker = wasOnGround ? waterWalker : waterWalker * 0.5;
-                slowdown += (0.54600006 - slowdown) * walker;
-                Vec3 velocity = new Vec3(collisionVelocity.x, collisionVelocity.y, collisionVelocity.z)
-                        .multiply(slowdown, 0.8, slowdown);
-                double vertical = velocity.y;
-                if (gravity != 0.0 && !cube.isSprinting()) {
-                    if (wasFalling && Math.abs(vertical - 0.005) >= 0.003
-                            && Math.abs(vertical - gravity / 16.0) < 0.003) {
-                        vertical = -0.003;
-                    } else {
-                        vertical -= gravity / 16.0;
-                    }
-                }
-                if (buoyant) {
-                    double floatAmount = fluid.height - fluidJumpThreshold
-                            + 0.2 * Math.sin((startingTick + tickIndex + 1) * 0.4);
-                    if (floatAmount > 0.0) vertical += Math.min(1.0, floatAmount) * 0.04;
-                }
-                return new dev.briefestboxer.core.Vec3(velocity.x, vertical, velocity.z);
-            }
-        };
-    }
-
-    private static FluidSample sampleWater(Minecraft client, SulfurCube cube, AABB startingBounds,
-            Vec3 startingCenter, Vec3 predictedCenter) {
-        AABB entityBounds = startingBounds.move(predictedCenter.subtract(startingCenter));
-        AABB box = entityBounds.deflate(0.001);
-        int minX = net.minecraft.util.Mth.floor(box.minX);
-        int minY = net.minecraft.util.Mth.floor(box.minY);
-        int minZ = net.minecraft.util.Mth.floor(box.minZ);
-        int maxX = net.minecraft.util.Mth.ceil(box.maxX) - 1;
-        int maxY = net.minecraft.util.Mth.ceil(box.maxY) - 1;
-        int maxZ = net.minecraft.util.Mth.ceil(box.maxZ) - 1;
-        Vec3 current = Vec3.ZERO;
-        double fluidHeight = 0.0;
-        for (int x = minX; x <= maxX; x++) {
-            for (int y = minY; y <= maxY; y++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    net.minecraft.core.BlockPos pos = new net.minecraft.core.BlockPos(x, y, z);
-                    if (!client.level.hasChunkAt(pos)) continue;
-                    var fluid = client.level.getFluidState(pos);
-                    if (!fluid.is(net.minecraft.tags.FluidTags.WATER)) continue;
-                    double top = y + fluid.getHeight(client.level, pos);
-                    if (top < box.minY) continue;
-                    // EntityFluidInteraction updates the tracked depth before it
-                    // accumulates this block's current. Partial-depth scaling is
-                    // therefore based on the depth reached at this point in the
-                    // same X/Y/Z scan, rather than the final depth of the entity.
-                    fluidHeight = Math.max(fluidHeight, top - entityBounds.minY);
-                    Vec3 flow = fluid.getFlow(client.level, pos, cube);
-                    if (fluidHeight < 0.4) flow = flow.scale(fluidHeight);
-                    current = current.add(flow);
+    /** Client-safe value effects from the server's synchronized enchantment registry. */
+    private static float enchantmentValue(ItemStack weapon,
+            net.minecraft.core.component.DataComponentType<java.util.List<net.minecraft.world.item.enchantment.ConditionalEffect<net.minecraft.world.item.enchantment.effects.EnchantmentValueEffect>>> component,
+            float value) {
+        var enchantments = weapon.getOrDefault(net.minecraft.core.component.DataComponents.ENCHANTMENTS,
+                net.minecraft.world.item.enchantment.ItemEnchantments.EMPTY);
+        var random = net.minecraft.util.RandomSource.create(0L);
+        for (var entry : enchantments.entrySet()) {
+            for (var effect : entry.getKey().value().getEffects(component)) {
+                // Vanilla Sharpness, Knockback and Density are unconditional.
+                // Target-filtered effects such as Smite do not apply to sulfur
+                // cubes. Server-only loot predicates cannot be evaluated here.
+                if (effect.requirements().isEmpty()) {
+                    value = effect.effect().process(entry.getIntValue(), random, value);
                 }
             }
         }
-        if (fluidHeight <= 0.0) return FluidSample.DRY;
-        if (current.lengthSqr() > 1.0E-5) current = current.normalize().scale(0.014);
-        else current = Vec3.ZERO;
-        return new FluidSample(fluidHeight, current);
-    }
-
-    private static final class FluidSample {
-        private static final FluidSample DRY = new FluidSample(0.0, Vec3.ZERO);
-        private final double height;
-        private final Vec3 current;
-        private FluidSample(double height, Vec3 current) {
-            this.height = height;
-            this.current = current;
-        }
-        private boolean inWater() { return height > 0.0; }
-    }
-
-    private static Trajectory.Surface sampleCubeSurface(Minecraft client, SulfurCube cube,
-            double centerX, double centerY, double centerZ) {
-        double radius = cube.getBbWidth() * 0.425;
-        double highestSurface = Double.NEGATIVE_INFINITY;
-        net.minecraft.core.BlockPos highestBlock = null;
-        for (int xStep = -1; xStep <= 1; xStep++) {
-            for (int zStep = -1; zStep <= 1; zStep++) {
-                double x = centerX + xStep * radius;
-                double z = centerZ + zStep * radius;
-                Vec3 from = new Vec3(x, centerY, z);
-                Vec3 to = new Vec3(x, Math.max(client.level.getMinY(), centerY - 8.0), z);
-                var hit = client.level.clip(new ClipContext(from, to,
-                        ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, cube));
-                if (hit.getType() == HitResult.Type.BLOCK && hit.getLocation().y > highestSurface) {
-                    highestSurface = hit.getLocation().y;
-                    highestBlock = hit.getBlockPos();
-                }
-            }
-        }
-        if (highestBlock == null) return null;
-        var state = client.level.getBlockState(highestBlock);
-        boolean suppressesBounce = state.is(BlockTags.SUPPRESSES_BOUNCE);
-        double blockBounce = suppressesBounce ? 0.0 : state.getBlock().getBounceRestitution();
-        return new Trajectory.Surface(highestSurface, blockBounce, suppressesBounce,
-                state.getBlock().getFriction());
-    }
-
-    private static dev.briefestboxer.core.Vec3 clipCubeMovement(Minecraft client, SulfurCube cube,
-            AABB startingBounds, Vec3 currentCenter, dev.briefestboxer.core.Vec3 position,
-            dev.briefestboxer.core.Vec3 movement) {
-        Vec3 offset = new Vec3(position.x - currentCenter.x, position.y - currentCenter.y, position.z - currentCenter.z);
-        AABB movingBounds = startingBounds.move(offset);
-        Vec3 requested = new Vec3(movement.x, movement.y, movement.z);
-        List<VoxelShape> collisions = new ArrayList<>(
-                client.level.getEntityCollisions(cube, movingBounds.expandTowards(requested)));
-        Vec3 clipped = Entity.collideBoundingBox(cube, requested, movingBounds, client.level, collisions);
-        boolean hitX = requested.x != clipped.x;
-        boolean hitY = requested.y != clipped.y;
-        boolean hitZ = requested.z != clipped.z;
-        boolean hitGround = hitY && requested.y < 0.0;
-
-        // Match Entity.move's step-up path so a predicted cube doesn't stop at
-        // ledges it can climb during its real knockback flight.
-        float maxUpStep = cube.maxUpStep();
-        if (maxUpStep > 0.0F && (hitGround || cube.onGround()) && (hitX || hitZ)) {
-            AABB stepBounds = hitGround ? movingBounds.move(0.0, clipped.y, 0.0) : movingBounds;
-            AABB stepArea = stepBounds.expandTowards(requested.x, maxUpStep, requested.z);
-            if (!hitGround) stepArea = stepArea.expandTowards(0.0, -1.0E-5, 0.0);
-            List<VoxelShape> stepCollisions = new ArrayList<>(
-                    client.level.getEntityCollisions(cube, stepArea));
-            for (VoxelShape shape : client.level.getBlockCollisions(cube, stepArea)) {
-                stepCollisions.add(shape);
-            }
-            java.util.TreeSet<Float> stepHeights = new java.util.TreeSet<>();
-            for (VoxelShape shape : stepCollisions) {
-                var yCoordinates = shape.getCoords(net.minecraft.core.Direction.Axis.Y);
-                for (int i = 0; i < yCoordinates.size(); i++) {
-                    float height = (float) (yCoordinates.getDouble(i) - stepBounds.minY);
-                    if (height >= 0.0F && height <= maxUpStep && height != (float) clipped.y) {
-                        stepHeights.add(height);
-                    }
-                }
-            }
-            for (float stepHeight : stepHeights) {
-                Vec3 stepped = Entity.collideBoundingBox(cube,
-                        new Vec3(requested.x, stepHeight, requested.z), stepBounds, client.level, stepCollisions);
-                if (stepped.horizontalDistanceSqr() > clipped.horizontalDistanceSqr()) {
-                    double stepOffsetY = movingBounds.minY - stepBounds.minY;
-                    return vector(stepped.subtract(0.0, stepOffsetY, 0.0));
-                }
-            }
-        }
-        return vector(clipped);
+        return value;
     }
 
     /** Includes the absorbed material's matching Sulfur Cube archetype modifiers. */
@@ -565,14 +380,14 @@ public final class ForgeClientAimGuide {
         var itemModifiers = bodyItem.getOrDefault(net.minecraft.core.component.DataComponents.ATTRIBUTE_MODIFIERS,
                 net.minecraft.world.item.component.ItemAttributeModifiers.EMPTY);
         itemModifiers.forEach(net.minecraft.world.entity.EquipmentSlot.BODY, (modifiedAttribute, modifier) -> {
-            if (modifiedAttribute.equals(attribute) && !effective.hasModifier(modifier.id())) {
-                effective.addTransientModifier(modifier);
+            if (modifiedAttribute.equals(attribute)) {
+                effective.addOrUpdateTransientModifier(modifier);
             }
         });
         for (SulfurCubeArchetype archetype : archetypes) {
             for (var entry : archetype.attributeModifiers()) {
-                if (entry.attribute().equals(attribute) && !effective.hasModifier(entry.modifier().id())) {
-                    effective.addTransientModifier(entry.modifier());
+                if (entry.attribute().equals(attribute)) {
+                    effective.addOrUpdateTransientModifier(entry.modifier());
                 }
             }
         }
@@ -587,17 +402,21 @@ public final class ForgeClientAimGuide {
         var effective = new net.minecraft.world.entity.ai.attributes.AttributeInstance(attribute, ignored -> {});
         effective.setBaseValue(current.getBaseValue());
         for (var modifier : current.getModifiers()) effective.addTransientModifier(modifier);
+        if (slot == net.minecraft.world.entity.EquipmentSlot.MAINHAND) {
+            effective.removeModifier(net.minecraft.world.item.Item.BASE_ATTACK_DAMAGE_ID);
+            effective.removeModifier(net.minecraft.world.item.Item.BASE_ATTACK_SPEED_ID);
+        }
         var itemModifiers = weapon.getOrDefault(net.minecraft.core.component.DataComponents.ATTRIBUTE_MODIFIERS,
                 net.minecraft.world.item.component.ItemAttributeModifiers.EMPTY);
         itemModifiers.forEach(slot, (modifiedAttribute, modifier) -> {
-            if (modifiedAttribute.equals(attribute) && !effective.hasModifier(modifier.id())) {
-                effective.addTransientModifier(modifier);
+            if (modifiedAttribute.equals(attribute)) {
+                effective.addOrUpdateTransientModifier(modifier);
             }
         });
         return effective.getValue();
     }
 
-    private record TargetDistance(LivingEntity entity, AABB bounds, double distanceSquared) {}
+    private record TargetDistance(Entity entity, AABB bounds, double distanceSquared) {}
 
     private static dev.briefestboxer.core.Vec3 vector(Vec3 point) {
         return new dev.briefestboxer.core.Vec3(point.x, point.y, point.z);

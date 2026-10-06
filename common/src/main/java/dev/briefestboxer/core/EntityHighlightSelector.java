@@ -10,7 +10,10 @@ public final class EntityHighlightSelector {
     }
 
     public static double distanceSquared(Vec3 camera, Bounds bounds) {
-        return closestPoint(camera, bounds).subtract(camera).lengthSquared();
+        double dx = clamp(camera.x, bounds.minX, bounds.maxX) - camera.x;
+        double dy = clamp(camera.y, bounds.minY, bounds.maxY) - camera.y;
+        double dz = clamp(camera.z, bounds.minZ, bounds.maxZ) - camera.z;
+        return dx * dx + dy * dy + dz * dz;
     }
 
     public static boolean isWithinReach(Vec3 camera, Bounds bounds, double reach) {

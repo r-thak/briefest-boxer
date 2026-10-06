@@ -19,8 +19,8 @@ public final class SulfurCubeHitModel {
         double directionZ = horizontalLength > 1.0E-12 ? -look.z / horizontalLength : 1.0;
         velocity = livingKnockback(velocity, extraKnockbackStrength, directionX, directionZ,
                 knockbackResistance, cubeOnGround);
-        // Player.causeExtraKnockback damps the resulting horizontal movement.
-        return new Vec3(velocity.x * 0.6, velocity.y, velocity.z * 0.6);
+        // Player.causeExtraKnockback damps the attacker, not the target.
+        return velocity;
     }
 
     private static Vec3 livingKnockback(Vec3 velocity, double strength, double directionX,
@@ -107,8 +107,8 @@ public final class SulfurCubeHitModel {
         if (bonusScale <= 0.0) return velocity;
         velocity = applyImpulse(velocity, rotatedHorizontalPower, rotatedVerticalPower,
                 bonusRotatedX, bonusRotatedZ, bonusScale);
-        // Player.causeExtraKnockback damps horizontal velocity after this call.
-        return new Vec3(velocity.x * 0.6, velocity.y, velocity.z * 0.6);
+        // Player.causeExtraKnockback damps the attacker, not the target.
+        return velocity;
     }
 
     private static Vec3 applyImpulse(Vec3 velocity, double horizontalPower, double verticalPower,

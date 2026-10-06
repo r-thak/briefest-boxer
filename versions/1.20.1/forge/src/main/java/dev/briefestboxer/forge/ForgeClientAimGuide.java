@@ -58,10 +58,11 @@ public final class ForgeClientAimGuide {
                     || target.isSpectator() || target.isInvisible()) continue;
             if (target instanceof AbstractClientPlayer && !BriefestBoxerConfig.showAimPoints) continue;
             if (!(target instanceof AbstractClientPlayer) && !BriefestBoxerConfig.showEntities) continue;
-            AABB box = target.getBoundingBox();
+            AABB box = hittableBounds(target, event.getPartialTick());
             net.minecraft.world.phys.Vec3 closest = closest(camera, box);
             double d2 = camera.distanceToSqr(closest);
-            if (d2 > scanRadius * scanRadius || !visible(client, client.player, camera, closest)) continue;
+            if (d2 > Math.min(scanRadius * scanRadius, reach * reach)
+                    || (nearest != null && d2 >= nearest.distanceSquared) || !visible(client, client.player, camera, closest)) continue;
             if (nearest == null || d2 < nearest.distanceSquared) nearest = new Target(target, box, d2);
         }
 
@@ -119,6 +120,14 @@ public final class ForgeClientAimGuide {
         BlockHitResult hit = client.level.clip(new ClipContext(camera, sample,
                 ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, viewer));
         return hit.getType() != HitResult.Type.BLOCK || camera.distanceToSqr(hit.getLocation()) >= d2 - 0.01;
+    }
+
+    private static AABB hittableBounds(Entity entity, float partialTick) {
+        double backstep = 1.0 - partialTick;
+        return entity.getBoundingBox().inflate(entity.getPickRadius()).move(
+                (entity.xOld - entity.getX()) * backstep,
+                (entity.yOld - entity.getY()) * backstep,
+                (entity.zOld - entity.getZ()) * backstep);
     }
 
     private static net.minecraft.world.phys.Vec3 closest(net.minecraft.world.phys.Vec3 p, AABB b) {

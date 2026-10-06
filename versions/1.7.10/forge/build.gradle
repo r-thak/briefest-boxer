@@ -32,3 +32,10 @@ tasks.named('compileMcLauncherJava', JavaCompile).configure {
         languageVersion = JavaLanguageVersion.of(17)
     }
 }
+
+// Include the project license and the GPL terms incorporated by LGPL 3.0.
+jar {
+    from('../../../') {
+        include 'LICENSE', 'COPYING'
+    }
+}

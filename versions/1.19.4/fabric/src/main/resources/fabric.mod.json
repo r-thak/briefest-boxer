@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
+  "license": "LGPL-3.0-only",
   "id": "briefest_boxer",
   "version": "${version}",
   "name": "Briefest Boxer",

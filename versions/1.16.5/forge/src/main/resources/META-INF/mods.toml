@@ -1,6 +1,6 @@
 modLoader="javafml"
 loaderVersion="[36,)"
-license="All Rights Reserved"
+license="LGPL-3.0-only"
 [[mods]]
 modId="briefest_boxer"
 version="${file.jarVersion}"

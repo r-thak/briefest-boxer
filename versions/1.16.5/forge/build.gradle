@@ -31,3 +31,10 @@ sourceSets.main.java.exclude('dev/briefestboxer/core/SulfurCubeHitModel.java')
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
+
+// Include the project license and the GPL terms incorporated by LGPL 3.0.
+jar {
+    from('../../../') {
+        include 'LICENSE', 'COPYING'
+    }
+}

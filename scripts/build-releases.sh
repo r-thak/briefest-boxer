@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-release_version="${BRIEFEST_BOXER_VERSION:-0.1.1}"
+release_version="${BRIEFEST_BOXER_VERSION:-0.1.3}"
 release_dir="$root_dir/releases/$release_version"
 gradle_bin="${GRADLE_BIN:-gradle}"
 gradle_user_home_path="${BRIEFEST_BOXER_GRADLE_USER_HOME:-}"

@@ -1,10 +1,12 @@
 # Briefest Boxer
 
-Highlights the reachable portions of entity hitboxes.
+Highlights the reachable portions of entity hitboxes; in multicolor/gradient mode, the color corresponds to the distance from the player (relative).
 
-### Multicolor reachable surfaces
+### Gradient reachable surfaces
 
 ![Multicolor reachable hitbox highlights in an ancient city](docs/screenshots/multicolor-reachable-highlights.png)
+
+### Single color hitboxes
 
 ![Green reachable hitbox highlights on horses and a smaller entity in a fenced enclosure](docs/screenshots/reachable-entity-highlights.png)
 

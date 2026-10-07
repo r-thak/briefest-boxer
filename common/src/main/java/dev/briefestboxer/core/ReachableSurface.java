@@ -89,6 +89,13 @@ public final class ReachableSurface {
         return result;
     }
 
+    /** Optional relative-distance coloring for renderers on earlier game versions. */
+    public static List<Triangle> coloredMesh(EntityHighlightSelector.Bounds box, Vec3 camera, double reach) {
+        List<Triangle> mesh = mesh(box, camera, reach);
+        return BriefestBoxerConfig.multicolorHighlights && !mesh.isEmpty()
+                ? HighlightGradient.triangles(mesh, camera) : mesh;
+    }
+
     private static List<Point2> clip(List<Point2> input, int axis, double edge, boolean keepGreater) {
         if (input.isEmpty()) return input;
         List<Point2> output = new ArrayList<Point2>();
@@ -128,7 +135,11 @@ public final class ReachableSurface {
 
     public static final class Triangle {
         public final Vec3 a, b, c;
-        private Triangle(Vec3 a, Vec3 b, Vec3 c) { this.a = a; this.b = b; this.c = c; }
+        public final int gradientColor;
+        private Triangle(Vec3 a, Vec3 b, Vec3 c) { this(a, b, c, -1); }
+        Triangle(Vec3 a, Vec3 b, Vec3 c, int gradientColor) {
+            this.a = a; this.b = b; this.c = c; this.gradientColor = gradientColor;
+        }
     }
 
     private static final class Point2 {

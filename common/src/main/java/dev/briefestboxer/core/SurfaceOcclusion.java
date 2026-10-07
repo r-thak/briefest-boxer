@@ -9,6 +9,19 @@ import java.util.List;
 public final class SurfaceOcclusion {
     private SurfaceOcclusion() {}
 
+    /** Reveal the reachable surface only when some of it is already visible. */
+    public static List<Vec3[]> quads(List<ReachableSurface.Triangle> mesh, Vec3 camera,
+                                    List<EntityHighlightSelector.Bounds> blockers, boolean revealPartial,
+                                    List<ReachableSurface.Triangle> visibilityMesh) {
+        if (!revealPartial) return quads(mesh, camera, blockers);
+        // A visible head above a fence also qualifies when the reachable patch
+        // itself is behind a rail. Inspect the whole hitbox for visibility.
+        if (quads(visibilityMesh, camera, blockers).isEmpty()) return Collections.emptyList();
+        // Keep the whole reachable mesh, never extending past the hitbox or reach.
+        // Visibility is checked first so entities behind a wall remain excluded.
+        return quads(mesh, camera, Collections.<EntityHighlightSelector.Bounds>emptyList());
+    }
+
     public static List<Vec3[]> quads(List<ReachableSurface.Triangle> mesh, Vec3 camera,
                                     List<EntityHighlightSelector.Bounds> blockers) {
         List<Vec3[]> result = new ArrayList<Vec3[]>();

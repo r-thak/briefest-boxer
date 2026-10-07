@@ -108,8 +108,7 @@ public final class ForgeClientAimGuide {
             // Dropped items (and other non-living entities) are not attack targets.
             if (!(entity instanceof net.minecraft.world.entity.LivingEntity)
                     || entity == viewer || !entity.isAlive() || entity.isSpectator() || entity.isInvisible()) continue;
-            boolean player = entity instanceof net.minecraft.world.entity.player.Player;
-            if (player ? !BriefestBoxerConfig.showAimPoints : !BriefestBoxerConfig.showEntities) continue;
+            if (!EntityHighlightFilters.enabled(entity.getType())) continue;
             AABB box = hittableBounds(entity, renderPartialTick(client, entity));
             double distance = EntityHighlightSelector.distanceSquared(coreCamera, bounds(box));
             if (distance <= radiusSquared) candidates.add(new TargetDistance(entity, box, distance));
@@ -158,12 +157,26 @@ public final class ForgeClientAimGuide {
             }
         }
         List<dev.briefestboxer.core.Vec3[]> visibleQuads =
-                dev.briefestboxer.core.SurfaceOcclusion.quads(mesh, vector(camera), blockers);
+                dev.briefestboxer.core.SurfaceOcclusion.quads(mesh, vector(camera), blockers,
+                        BriefestBoxerConfig.showPartiallyObscuredHitboxes,
+                        BriefestBoxerConfig.showPartiallyObscuredHitboxes
+                                ? ReachableSurface.mesh(box, vector(camera), Double.POSITIVE_INFINITY) : mesh);
         if (visibleQuads.isEmpty()) return false;
-        int color = (BriefestBoxerConfig.hitboxAlpha() << 24) | (rgb & 0xFFFFFF);
-        // These are actual clipped face quads, not their rectangular bounding
-        // slabs. Submit one command for this frame so old poses cannot overlap.
+        final int alpha = BriefestBoxerConfig.hitboxAlpha() << 24;
+        final int color = alpha | (rgb & 0xFFFFFF);
+        final List<dev.briefestboxer.core.HighlightGradient.ColoredQuad> gradient =
+                BriefestBoxerConfig.multicolorHighlights
+                        ? dev.briefestboxer.core.HighlightGradient.quads(visibleQuads, vector(camera)) : null;
+        // Submit the reachable face geometry once for this frame. Partial cover
+        // can be revealed, but fully hidden targets have already been rejected.
         Gizmos.addGizmo((primitives, progress) -> {
+            if (gradient != null) {
+                for (dev.briefestboxer.core.HighlightGradient.ColoredQuad patch : gradient) {
+                    var q = patch.points;
+                    primitives.addQuad(gameVec(q[0]), gameVec(q[1]), gameVec(q[2]), gameVec(q[3]), alpha | patch.rgb);
+                }
+                return;
+            }
             for (dev.briefestboxer.core.Vec3[] quad : visibleQuads) {
                 primitives.addQuad(gameVec(quad[0]), gameVec(quad[1]), gameVec(quad[2]), gameVec(quad[3]), color);
             }

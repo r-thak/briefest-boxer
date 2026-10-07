@@ -62,7 +62,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
 
         int rgb = nearest instanceof PlayerEntity
                 ? BriefestBoxerConfig.selectedColor() : BriefestBoxerConfig.otherColor();
-        List<ReachableSurface.Triangle> mesh = ReachableSurface.mesh(bounds(nearestBox), vector(camera), reach);
+        List<ReachableSurface.Triangle> mesh = ReachableSurface.coloredMesh(bounds(nearestBox), vector(camera), reach);
         if (mesh.isEmpty()) return;
 
         Tessellator tessellator = Tessellator.getInstance();
@@ -77,6 +77,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         GL11.glDisable(GL11.GL_CULL_FACE);
         out.begin(GL11.GL_TRIANGLES, VertexFormats.POSITION_COLOR);
         for (ReachableSurface.Triangle triangle : mesh) {
+            if (BriefestBoxerConfig.multicolorHighlights) rgb = triangle.gradientColor;
             Vec3d a = gameVec(triangle.a);
             Vec3d b = gameVec(triangle.b);
             Vec3d c = gameVec(triangle.c);

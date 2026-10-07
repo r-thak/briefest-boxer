@@ -65,7 +65,7 @@ public final class ForgeClientAimGuide {
 
         double reach = client.playerController.getBlockReachDistance();
         if (nearestDistance > reach * reach) return;
-        List<ReachableSurface.Triangle> mesh = ReachableSurface.mesh(bounds(nearestBox), vector(camera), reach);
+        List<ReachableSurface.Triangle> mesh = ReachableSurface.coloredMesh(bounds(nearestBox), vector(camera), reach);
         if (mesh.isEmpty()) return;
         int rgb = nearest instanceof EntityPlayer
                 ? BriefestBoxerConfig.selectedColor() : BriefestBoxerConfig.otherColor();
@@ -83,6 +83,7 @@ public final class ForgeClientAimGuide {
                 (rgb & 255) / 255.0F, 0.78F);
         out.begin(GL11.GL_TRIANGLES, DefaultVertexFormats.POSITION_COLOR);
         for (ReachableSurface.Triangle triangle : mesh) {
+            if (BriefestBoxerConfig.multicolorHighlights) rgb = triangle.gradientColor;
             Vec3d a = gameVec(triangle.a), b = gameVec(triangle.b), c = gameVec(triangle.c);
             Vec3d sample = new Vec3d((a.x + b.x + c.x) / 3.0,
                     (a.y + b.y + c.y) / 3.0, (a.z + b.z + c.z) / 3.0);

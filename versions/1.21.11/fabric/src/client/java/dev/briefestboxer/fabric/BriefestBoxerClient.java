@@ -121,7 +121,8 @@ public final class BriefestBoxerClient implements ClientModInitializer {
     }
     private static void drawReachableSurface(MinecraftClient client, WorldRenderContext context, VertexConsumer out, Vec3d camera,
             EntityHighlightSelector.Bounds bounds, double reach, int rgb, double opacity) {
-        for (ReachableSurface.Triangle triangle : ReachableSurface.mesh(bounds, vector(camera), reach)) {
+        for (ReachableSurface.Triangle triangle : ReachableSurface.coloredMesh(bounds, vector(camera), reach)) {
+            if (BriefestBoxerConfig.multicolorHighlights) rgb = triangle.gradientColor;
             Vec3d a = gameVec(triangle.a), pointB = gameVec(triangle.b), c = gameVec(triangle.c);
             Vec3d sample = new Vec3d((a.x + pointB.x + c.x) / 3.0,
                     (a.y + pointB.y + c.y) / 3.0, (a.z + pointB.z + c.z) / 3.0);

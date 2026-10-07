@@ -68,7 +68,7 @@ public final class BriefestBoxerClient implements ClientModInitializer {
         if (nearestDistance > reach * reach) return;
         int rgb = nearest instanceof PlayerEntity
                 ? BriefestBoxerConfig.selectedColor() : BriefestBoxerConfig.otherColor();
-        List<ReachableSurface.Triangle> mesh = ReachableSurface.mesh(bounds(nearestBox), vector(camera), reach);
+        List<ReachableSurface.Triangle> mesh = ReachableSurface.coloredMesh(bounds(nearestBox), vector(camera), reach);
         if (mesh.isEmpty()) return;
 
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT
@@ -83,6 +83,8 @@ public final class BriefestBoxerClient implements ClientModInitializer {
                 (rgb & 255) / 255.0F, 0.80F);
         GL11.glBegin(GL11.GL_TRIANGLES);
         for (ReachableSurface.Triangle triangle : mesh) {
+            if (BriefestBoxerConfig.multicolorHighlights) rgb = triangle.gradientColor;
+            GL11.glColor4f((rgb >> 16 & 255) / 255.0F, (rgb >> 8 & 255) / 255.0F, (rgb & 255) / 255.0F, 0.80F);
             Vec3d a = gameVec(triangle.a);
             Vec3d b = gameVec(triangle.b);
             Vec3d c = gameVec(triangle.c);

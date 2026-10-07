@@ -99,7 +99,9 @@ public final class ForgeClientAimGuide {
     private static void drawReachableSurface(VertexConsumer out, PoseStack matrices, net.minecraft.world.phys.Vec3 camera,
             EntityHighlightSelector.Bounds bounds, double reach, int rgb, double opacity) {
         int alpha = (int) (160 * opacity), r = rgb >>> 16 & 255, g = rgb >>> 8 & 255, b = rgb & 255;
-        for (ReachableSurface.Triangle triangle : ReachableSurface.mesh(bounds, vector(camera), reach)) {
+        for (ReachableSurface.Triangle triangle : ReachableSurface.coloredMesh(bounds, vector(camera), reach)) {
+            if (BriefestBoxerConfig.multicolorHighlights) rgb = triangle.gradientColor;
+            r = rgb >>> 16 & 255; g = rgb >>> 8 & 255; b = rgb & 255;
             vertex(out, matrices, gameVec(triangle.a), r, g, b, alpha);
             vertex(out, matrices, gameVec(triangle.b), r, g, b, alpha);
             vertex(out, matrices, gameVec(triangle.c), r, g, b, alpha);
